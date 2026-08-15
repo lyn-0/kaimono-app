@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>お買い物マネージャー</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<header class="app-header">
+  <h1><span class="logo-mark">🛍️</span> <span class="logo-text">お買い物マネージャー</span></h1>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="shopping">🛒 買い物リスト</button>
+    <button class="tab-btn" data-tab="wish">⭐ ほしいもの</button>
+    <button class="tab-btn" data-tab="bought">✅ 買ったもの</button>
+  </nav>
+  <div class="header-actions">
+    <div id="authArea" class="auth-area"></div>
+    <button id="exportBtn" class="ghost-btn" title="データをJSONファイルに保存">📤 バックアップ</button>
+    <label class="ghost-btn" title="JSONファイルから復元">📥 復元<input type="file" id="importFile" accept=".json" hidden></label>
+  </div>
+</header>
+
+<main>
+  <!-- ===== 買い物リスト ===== -->
+  <section id="tab-shopping" class="tab-panel active">
+    <form id="shoppingForm" class="quick-add">
+      <input type="text" id="shoppingName" placeholder="買うものを入力（例: 牛乳）" required>
+      <input type="text" id="shoppingQty" placeholder="数量" class="qty-input">
+      <button type="submit" class="primary-btn">追加</button>
+    </form>
+    <div class="list-toolbar">
+      <span id="shoppingCount" class="count-label"></span>
+      <button id="clearDoneBtn" class="ghost-btn">✔ チェック済みを削除</button>
+    </div>
+    <ul id="shoppingList" class="shopping-list"></ul>
+    <p id="shoppingEmpty" class="empty-msg">買うものはありません。上の欄から追加してください。</p>
+  </section>
+
+  <!-- ===== ほしいものリスト ===== -->
+  <section id="tab-wish" class="tab-panel">
+    <div class="wish-toolbar">
+      <button id="addWishBtn" class="primary-btn">＋ ほしいものを追加</button>
+      <select id="wishSort">
+        <option value="manual">並び順: 手動（ドラッグで入替）</option>
+        <option value="priceAsc">価格が安い順</option>
+        <option value="priceDesc">価格が高い順</option>
+        <option value="newest">追加が新しい順</option>
+      </select>
+      <button id="compareBtn" class="accent-btn">⚖️ ジャンル比較</button>
+      <button id="recommendBtn" class="accent-btn">🏆 カテゴリのおすすめ</button>
+    </div>
+    <div id="categoryChips" class="chips"></div>
+    <div id="categoryBest" class="category-best" hidden></div>
+    <div id="wishGrid" class="card-grid"></div>
+    <p id="wishEmpty" class="empty-msg">ほしいものはまだありません。「＋ ほしいものを追加」から登録してください。</p>
+  </section>
+
+  <!-- ===== 買ったものリスト ===== -->
+  <section id="tab-bought" class="tab-panel">
+    <div class="wish-toolbar">
+      <select id="boughtSort">
+        <option value="newest">購入が新しい順</option>
+        <option value="cospaAsc">コスパが良い順（1回あたりが安い）</option>
+        <option value="cospaDesc">コスパが悪い順</option>
+        <option value="usageDesc">使用回数が多い順</option>
+      </select>
+    </div>
+    <div id="boughtGrid" class="card-grid"></div>
+    <p id="boughtEmpty" class="empty-msg">買ったものはまだありません。ほしいものリストの「🛒 買った！」から移動できます。</p>
+  </section>
+</main>
+
+<!-- ===== アイテム編集ダイアログ ===== -->
+<dialog id="itemDialog">
+  <form id="itemForm" method="dialog">
+    <h2 id="itemDialogTitle">ほしいものを追加</h2>
+    <div class="form-grid">
+      <label>商品名 *<input type="text" id="fName" required placeholder="例: ヘアアイロン SL-010"></label>
+      <label>価格（円）<input type="number" id="fPrice" min="0" step="1" placeholder="例: 12800"></label>
+      <label>カテゴリ<input type="text" id="fCategory" list="categoryList" placeholder="例: 美容家電"><datalist id="categoryList"></datalist></label>
+      <label>ジャンル（比較用）<input type="text" id="fGenre" list="genreList" placeholder="例: ヘアアイロン"><datalist id="genreList"></datalist></label>
+      <label class="full">商品ページURL<input type="url" id="fUrl" placeholder="https://..."></label>
+      <label class="full">ほしい度
+        <div id="fRating" class="rating-input" aria-label="ほしい度">
+          <button type="button" data-v="1">★</button><button type="button" data-v="2">★</button><button type="button" data-v="3">★</button><button type="button" data-v="4">★</button><button type="button" data-v="5">★</button>
+          <button type="button" data-v="0" class="rating-clear">クリア</button>
+        </div>
+      </label>
+      <label class="full">メモ<textarea id="fMemo" rows="2" placeholder="気になっている点など"></textarea></label>
+    </div>
+
+    <fieldset class="spec-fieldset">
+      <legend>スペック（比較に使われます）</legend>
+      <div id="specRows"></div>
+      <button type="button" id="addSpecBtn" class="ghost-btn">＋ スペック項目を追加</button>
+    </fieldset>
+
+    <fieldset class="image-fieldset">
+      <legend>スクショ・画像</legend>
+      <div id="pasteZone" class="paste-zone" tabindex="0">ここをクリックして <b>Ctrl+V</b> でスクショを貼り付け／またはファイルを選択
+        <input type="file" id="fImages" accept="image/*" multiple>
+      </div>
+      <div id="imagePreview" class="image-preview"></div>
+    </fieldset>
+
+    <div class="dialog-actions">
+      <button type="button" id="itemCancelBtn" class="ghost-btn">キャンセル</button>
+      <button type="submit" class="primary-btn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== ジャンル比較ダイアログ ===== -->
+<dialog id="compareDialog" class="wide-dialog">
+  <h2>⚖️ 同ジャンル商品の比較</h2>
+  <div class="compare-controls">
+    <label>ジャンルを選択:
+      <select id="compareGenre"></select>
+    </label>
+  </div>
+  <div id="compareResult"></div>
+  <div class="dialog-actions">
+    <button type="button" id="compareCloseBtn" class="primary-btn">閉じる</button>
+  </div>
+</dialog>
+
+<!-- ===== カテゴリおすすめダイアログ ===== -->
+<dialog id="recommendDialog" class="wide-dialog">
+  <h2>🏆 カテゴリごとのおすすめ</h2>
+  <p class="hint">価格・ほしい度・スペック情報の充実度から、カテゴリごとのイチオシを判定します。</p>
+  <div id="recommendResult"></div>
+  <div class="dialog-actions">
+    <button type="button" id="recommendCloseBtn" class="primary-btn">閉じる</button>
+  </div>
+</dialog>
+
+<!-- ===== 使用記録ダイアログ ===== -->
+<dialog id="usageDialog">
+  <h2 id="usageDialogTitle">使用記録</h2>
+  <div class="usage-add">
+    <button id="useTodayBtn" class="primary-btn">✅ 今日使った</button>
+    <div class="usage-date-add">
+      <input type="date" id="usageDate">
+      <button id="useDateBtn" class="ghost-btn">この日付で記録</button>
+    </div>
+  </div>
+  <div id="usageStats" class="usage-stats"></div>
+  <ul id="usageList" class="usage-list"></ul>
+  <div class="dialog-actions">
+    <button type="button" id="usageCloseBtn" class="primary-btn">閉じる</button>
+  </div>
+</dialog>
+
+<!-- ===== Googleログイン初期設定ダイアログ ===== -->
+<dialog id="googleSetupDialog" class="wide-dialog">
+  <h2>🔑 Googleログインの初期設定</h2>
+  <p class="hint">初回のみ、Google Cloud で「クライアントID」を無料で発行して貼り付ける必要があります（5分程度・クレジットカード不要）。<br>
+  ログインすると、アプリのデータ（スクショ込み）を自分のGoogleドライブに保存・復元できるようになります。</p>
+  <ol class="setup-steps">
+    <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> を開いてGoogleアカウントでログインし、画面上部から<b>新しいプロジェクトを作成</b>（名前は自由。例: kaimono-app）</li>
+    <li>左メニュー「APIとサービス」→「ライブラリ」で <b>Google Drive API</b> を検索して<b>有効化</b></li>
+    <li>「APIとサービス」→「OAuth同意画面」で <b>外部</b> を選び、アプリ名と自分のメールアドレスを入力して保存。「テストユーザー」に<b>自分のGmailアドレスを追加</b></li>
+    <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「<b>OAuthクライアントID</b>」で、種類は「<b>ウェブアプリケーション</b>」を選択。「承認済みのJavaScript生成元」に <code>http://localhost:8765</code> を追加して作成</li>
+    <li>表示された<b>クライアントID</b>（xxxx.apps.googleusercontent.com）を下に貼り付けて保存</li>
+  </ol>
+  <label class="client-id-label">クライアントID
+    <input type="text" id="clientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
+  </label>
+  <div class="dialog-actions">
+    <button type="button" id="setupCancelBtn" class="ghost-btn">閉じる</button>
+    <button type="button" id="setupSaveBtn" class="primary-btn">保存</button>
+  </div>
+</dialog>
+
+<!-- ===== 画像拡大ビューア ===== -->
+<dialog id="imageViewer" class="image-viewer">
+  <img id="viewerImg" alt="拡大画像">
+  <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
