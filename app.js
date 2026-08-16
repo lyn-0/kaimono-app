@@ -592,6 +592,8 @@ $("#itemForm").addEventListener("submit", async (e) => {
     const idx = wishItems.findIndex((x) => x.id === item.id);
     if (idx >= 0) wishItems[idx] = item; else wishItems.push(item);
     renderWish();
+    // 画像なし & URLあり → 商品ページのスクショを自動登録（非同期）
+    if (!item.images.length && item.url) autoFetchScreenshot(item.id);
   } else {
     const idx = boughtItems.findIndex((x) => x.id === item.id);
     if (idx >= 0) boughtItems[idx] = item; else boughtItems.push(item);
@@ -599,6 +601,48 @@ $("#itemForm").addEventListener("submit", async (e) => {
   }
   $("#itemDialog").close();
 });
+
+/* ---- 商品URLからのスクショ自動取得 ----
+   ブラウザ単体では他サイトのスクショは撮れないため、
+   無料のスクショ生成サービス mShots (WordPress) を
+   CORS対応プロキシ (images.weserv.nl) 経由で取得する。 */
+async function fetchUrlScreenshot(url) {
+  const mshots = "https://s0.wp.com/mshots/v1/" + encodeURIComponent(url) + "?w=1200";
+  const proxied = "https://images.weserv.nl/?url=" + encodeURIComponent(mshots);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 4000)); // スクショ生成待ち
+    try {
+      const resp = await fetch(proxied, { cache: "no-store" });
+      if (!resp.ok) continue;
+      const blob = await resp.blob();
+      // 生成中はGIFのプレースホルダが返る（完成したスクショはJPEG）→ 再試行
+      if (blob.type !== "image/gif" && blob.size > 3000) return blob;
+    } catch (e) { /* ネットワークエラーは再試行 */ }
+  }
+  return null;
+}
+
+async function autoFetchScreenshot(itemId) {
+  const item = wishItems.find((x) => x.id === itemId);
+  if (!item || (item.images && item.images.length) || !item.url) return;
+  toast("📷 商品ページのスクショを取得中...（数十秒かかることがあります）");
+  try {
+    const blob = await fetchUrlScreenshot(item.url);
+    if (!blob) throw new Error("スクショの生成がタイムアウトしました");
+    const dataURL = await compressImage(blob);
+    // 取得中にユーザーが画像を追加/削除した場合は上書きしない
+    const cur = wishItems.find((x) => x.id === itemId);
+    if (!cur || (cur.images && cur.images.length)) return;
+    const imgId = await saveNewImage(dataURL);
+    cur.images = [imgId];
+    await dbPut("wish", cur);
+    renderWish();
+    toast("📷 商品ページのスクショを登録しました");
+  } catch (err) {
+    console.warn("スクショ自動取得に失敗:", err);
+    toast("⚠️ スクショを自動取得できませんでした（編集から手動で追加できます）");
+  }
+}
 
 $("#addWishBtn").addEventListener("click", () => openItemDialog("wish", null));
 $("#wishSort").addEventListener("change", (e) => {
