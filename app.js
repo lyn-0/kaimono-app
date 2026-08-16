@@ -1363,9 +1363,11 @@ function renderAuth() {
   updateGate();
   const area = $("#authArea");
   if (currentUser) {
+    const tip = esc([currentUser.displayName, currentUser.email].filter(Boolean).join(" / "));
     area.innerHTML = `
-      ${currentUser.photoURL ? `<img class="avatar" src="${esc(currentUser.photoURL)}" alt="" referrerpolicy="no-referrer">` : ""}
-      <span class="auth-name" title="${esc(currentUser.email || "")}">${esc(currentUser.displayName || currentUser.email || "ユーザー")}</span>
+      ${currentUser.photoURL
+        ? `<img class="avatar" src="${esc(currentUser.photoURL)}" alt="" title="${tip}" referrerpolicy="no-referrer">`
+        : `<span class="avatar avatar-ph" title="${tip}">👤</span>`}
       <button id="logoutBtn" class="ghost-btn">ログアウト</button>`;
     $("#logoutBtn").addEventListener("click", googleLogout);
   } else {

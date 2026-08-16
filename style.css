@@ -215,13 +215,12 @@ body.locked { overflow: hidden; }
   box-shadow: var(--shadow-sm);
   display: block;
 }
-.auth-name {
-  font-size: .84rem;
-  font-weight: 700;
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.avatar-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #eceef6;
+  font-size: .95rem;
 }
 .setup-steps { font-size: .89rem; line-height: 2; padding-left: 22px; margin: 10px 0; }
 .setup-steps a { color: var(--primary); font-weight: 700; }
@@ -945,7 +944,6 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
   .ghost-btn { padding: 7px 10px; font-size: .76rem; }
   .google-btn { padding: 7px 12px; font-size: .8rem; }
   .avatar { width: 26px; height: 26px; }
-  .auth-name { max-width: 76px; font-size: .78rem; }
 
   /* タブ: 絵文字を隠して3等分に収める */
   .tabs { order: 3; width: 100%; }
