@@ -1,58 +1,75 @@
 /* ============================================================
    お買い物マネージャー
    - 買い物リスト / ほしいものリスト / 買ったものリスト
-   - IndexedDB にすべて保存（画像は Blob）
+   - Firebase Authentication (Google) でログイン
+   - データは Cloud Firestore に保存（users/{uid}/ 以下）
+   - 画像は自動で縮小・JPEG圧縮して Firestore に保存
    ============================================================ */
 "use strict";
 
-/* ---------------- IndexedDB ---------------- */
-const DB_NAME = "kaimono-app";
-const DB_VER = 1;
-let db;
+/* ---------------- Firebase ---------------- */
+// 接続先プロジェクト（家計簿「遊び代管理」と同じ kakeibo-21cf0）。
+// APIキーは公開してよい値で、データ保護は Firestore のセキュリティルールが担う。
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyADydfhaPwCNBd_CO2c5qQM0ONmr-FTEZQ",
+  authDomain: "kakeibo-21cf0.firebaseapp.com",
+  projectId: "kakeibo-21cf0",
+  storageBucket: "kakeibo-21cf0.firebasestorage.app",
+  messagingSenderId: "558811122568",
+  appId: "1:558811122568:web:4e08fca088a1eb9579483d",
+};
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VER);
-    req.onupgradeneeded = () => {
-      const d = req.result;
-      if (!d.objectStoreNames.contains("shopping")) d.createObjectStore("shopping", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("wish")) d.createObjectStore("wish", { keyPath: "id" });
-      if (!d.objectStoreNames.contains("bought")) d.createObjectStore("bought", { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+let fapp = null;
+let fauth = null;
+let fdb = null;
+let currentUser = null;
+
+function getFirebaseConfig() {
+  return FIREBASE_CONFIG;
+}
+
+function initFirebase() {
+  const cfg = getFirebaseConfig();
+  if (!cfg || typeof firebase === "undefined" || fapp) return;
+  fapp = firebase.initializeApp(cfg);
+  fauth = firebase.auth();
+  fdb = firebase.firestore();
+  // オフラインキャッシュ（2回目以降の読み込み高速化・圏外時の閲覧）
+  fdb.enablePersistence({ synchronizeTabs: true }).catch(() => { /* 対応外ブラウザは無視 */ });
+  fauth.onAuthStateChanged(async (user) => {
+    currentUser = user;
+    renderAuth();
+    if (user) {
+      await loadAllData();
+    } else {
+      shoppingItems = []; wishItems = []; boughtItems = []; imagesById = new Map();
+      renderShopping(); renderWish(); renderBought();
+    }
   });
 }
-function tx(store, mode = "readonly") {
-  return db.transaction(store, mode).objectStore(store);
+
+/* ---------------- Firestore データ層 ---------------- */
+const userCol = (name) => fdb.collection("users").doc(currentUser.uid).collection(name);
+
+async function dbGetAll(store) {
+  const snap = await userCol(store).get();
+  return snap.docs.map((d) => d.data());
 }
-function dbGetAll(store) {
-  return new Promise((res, rej) => {
-    const r = tx(store).getAll();
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
+async function dbPut(store, obj) {
+  await userCol(store).doc(obj.id).set(obj);
 }
-function dbPut(store, obj) {
-  return new Promise((res, rej) => {
-    const r = tx(store, "readwrite").put(obj);
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
+async function dbDelete(store, id) {
+  await userCol(store).doc(id).delete();
 }
-function dbDelete(store, id) {
-  return new Promise((res, rej) => {
-    const r = tx(store, "readwrite").delete(id);
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
-}
-function dbClear(store) {
-  return new Promise((res, rej) => {
-    const r = tx(store, "readwrite").clear();
-    r.onsuccess = () => res();
-    r.onerror = () => rej(r.error);
-  });
+async function dbClear(store) {
+  const snap = await userCol(store).get();
+  // バッチは500件まで → 分割して削除
+  const docs = snap.docs;
+  for (let i = 0; i < docs.length; i += 450) {
+    const batch = fdb.batch();
+    docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
 }
 
 /* ---------------- ユーティリティ ---------------- */
@@ -69,16 +86,51 @@ const todayISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-// 画像の ObjectURL をリスト（バケット）ごとに管理し、再描画時に自分の分だけ破棄する
-const urlBuckets = { wish: [], bought: [], dialog: [] };
-function makeUrl(blob, bucket) {
-  const u = URL.createObjectURL(blob);
-  urlBuckets[bucket].push(u);
-  return u;
+/* ---------------- 画像管理 ----------------
+   Firestore の1ドキュメント上限(1MB)に収まるよう
+   縮小+JPEG圧縮した dataURL を users/{uid}/images に保存。
+   アイテム側は画像IDの配列を持つ。 */
+let imagesById = new Map(); // id -> dataURL
+
+const imgSrc = (id) => imagesById.get(id) || "";
+
+function compressImage(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      const MAX = 1000; // 長辺の最大px
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * scale));
+      c.height = Math.max(1, Math.round(img.height * scale));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let q = 0.85;
+      let dataUrl = c.toDataURL("image/jpeg", q);
+      while (dataUrl.length > 700000 && q > 0.35) { // 約700KBまで圧縮
+        q -= 0.15;
+        dataUrl = c.toDataURL("image/jpeg", q);
+      }
+      resolve(dataUrl);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めませんでした")); };
+    img.src = url;
+  });
 }
-function revokeUrls(bucket) {
-  urlBuckets[bucket].forEach((u) => URL.revokeObjectURL(u));
-  urlBuckets[bucket] = [];
+
+async function saveNewImage(dataURL) {
+  const id = uuid();
+  await dbPut("images", { id, data: dataURL, createdAt: Date.now() });
+  imagesById.set(id, dataURL);
+  return id;
+}
+
+async function deleteItemImages(item) {
+  for (const id of item.images || []) {
+    await dbDelete("images", id);
+    imagesById.delete(id);
+  }
 }
 
 /* ---------------- 状態 ---------------- */
@@ -88,6 +140,13 @@ let boughtItems = [];
 let activeCategory = "all";
 let wishSortMode = "manual";
 let boughtSortMode = "newest";
+
+async function loadAllData() {
+  imagesById = new Map((await dbGetAll("images")).map((d) => [d.id, d.data]));
+  await loadShopping();
+  await loadWish();
+  await loadBought();
+}
 
 /* ============================================================
    タブ切り替え
@@ -200,7 +259,6 @@ function addDragEvents(el, container, arr, onReorder) {
     if (fromIdx < 0 || toIdx < 0) return;
     if (fromIdx < toIdx) container.insertBefore(dragEl, el.nextSibling);
     else container.insertBefore(dragEl, el);
-    // 配列も DOM 順に合わせる
     const newIds = [...container.children].map((c) => c.dataset.id);
     arr.sort((a, b) => newIds.indexOf(a.id) - newIds.indexOf(b.id));
     await onReorder();
@@ -228,19 +286,21 @@ function sortedWish() {
 }
 
 function renderWish() {
-  revokeUrls("wish");
   renderCategoryChips();
   renderCategoryBest();
   const grid = $("#wishGrid");
   grid.innerHTML = "";
   const list = sortedWish();
   const draggable = wishSortMode === "manual";
-
-  list.forEach((item) => {
-    const card = buildWishCard(item, draggable);
-    grid.appendChild(card);
-  });
+  list.forEach((item) => grid.appendChild(buildWishCard(item, draggable)));
   $("#wishEmpty").classList.toggle("hidden", wishItems.length > 0);
+}
+
+function thumbHtmlOf(item) {
+  const src = item.images && item.images.length ? imgSrc(item.images[0]) : "";
+  if (!src) return `<div class="no-thumb">🖼️</div>`;
+  const count = item.images.length > 1 ? `<span class="thumb-count">📷 ${item.images.length}</span>` : "";
+  return `<img class="thumb" src="${src}" alt="">${count}`;
 }
 
 function buildWishCard(item, draggable) {
@@ -249,13 +309,9 @@ function buildWishCard(item, draggable) {
   card.dataset.id = item.id;
   if (draggable) card.draggable = true;
 
-  const thumbHtml = item.images && item.images.length
-    ? `<img class="thumb" src="${makeUrl(item.images[0], "wish")}" alt="">${item.images.length > 1 ? `<span class="thumb-count">📷 ${item.images.length}</span>` : ""}`
-    : `<div class="no-thumb">🖼️</div>`;
-
   card.innerHTML = `
     ${draggable ? `<span class="card-grip" title="ドラッグで並べ替え">⠿</span>` : ""}
-    ${thumbHtml}
+    ${thumbHtmlOf(item)}
     <div class="card-body">
       <div class="c-name">${esc(item.name)}</div>
       <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
@@ -285,10 +341,12 @@ function buildWishCard(item, draggable) {
     boughtItems.push(bought);
     renderWish();
     renderBought();
+    autoKakeiboSync(bought); // 設定ONなら家計簿にも自動追加（非同期・失敗しても影響なし）
   });
   card.querySelector(".edit-btn").addEventListener("click", () => openItemDialog("wish", item));
   card.querySelector(".c-del").addEventListener("click", async () => {
     if (!confirm(`「${item.name}」を削除しますか？`)) return;
+    await deleteItemImages(item);
     await dbDelete("wish", item.id);
     wishItems = wishItems.filter((x) => x.id !== item.id);
     renderWish();
@@ -384,13 +442,15 @@ function pickBest(group) {
    ============================================================ */
 let editingStore = "wish";
 let editingItem = null;   // null = 新規
-let dialogImages = [];    // Blob[]
+let dialogImages = [];    // [{id?, dataURL}] 既存はid付き、新規はdataURLのみ
 let dialogRating = 0;
 
 function openItemDialog(store, item) {
   editingStore = store;
   editingItem = item || null;
-  dialogImages = item ? [...(item.images || [])] : [];
+  dialogImages = item
+    ? (item.images || []).map((id) => ({ id, dataURL: imgSrc(id) })).filter((e) => e.dataURL)
+    : [];
   dialogRating = item ? item.rating || 0 : 0;
 
   $("#itemDialogTitle").textContent = item ? "アイテムを編集" : "ほしいものを追加";
@@ -401,7 +461,6 @@ function openItemDialog(store, item) {
   $("#fUrl").value = item ? item.url || "" : "";
   $("#fMemo").value = item ? item.memo || "" : "";
 
-  // datalist 更新
   const allItems = [...wishItems, ...boughtItems];
   $("#categoryList").innerHTML = [...new Set(allItems.map((x) => x.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join("");
   $("#genreList").innerHTML = [...new Set(allItems.map((x) => x.genre).filter(Boolean))].map((g) => `<option value="${esc(g)}">`).join("");
@@ -447,13 +506,11 @@ $("#addSpecBtn").addEventListener("click", () => addSpecRow());
 /* ---- 画像（貼り付け・選択） ---- */
 function renderDialogImages() {
   const wrap = $("#imagePreview");
-  wrap.querySelectorAll("img").forEach((i) => URL.revokeObjectURL(i.src));
   wrap.innerHTML = "";
-  dialogImages.forEach((blob, idx) => {
+  dialogImages.forEach((entry, idx) => {
     const div = document.createElement("div");
     div.className = "img-wrap";
-    const url = URL.createObjectURL(blob);
-    div.innerHTML = `<img src="${url}"><button type="button" class="img-del" title="削除">✕</button>`;
+    div.innerHTML = `<img src="${entry.dataURL}"><button type="button" class="img-del" title="削除">✕</button>`;
     div.querySelector(".img-del").addEventListener("click", () => {
       dialogImages.splice(idx, 1);
       renderDialogImages();
@@ -462,27 +519,33 @@ function renderDialogImages() {
   });
 }
 
-$("#itemDialog").addEventListener("paste", (e) => {
-  const items = e.clipboardData?.items || [];
-  let added = false;
-  for (const it of items) {
-    if (it.type.startsWith("image/")) {
-      const blob = it.getAsFile();
-      if (blob) { dialogImages.push(blob); added = true; }
+async function addDialogImageFiles(files) {
+  for (const f of files) {
+    try {
+      dialogImages.push({ dataURL: await compressImage(f) });
+    } catch (err) {
+      alert("画像の取り込みに失敗しました: " + err.message);
     }
   }
-  if (added) {
-    e.preventDefault();
-    renderDialogImages();
-  }
+  renderDialogImages();
+}
+
+$("#itemDialog").addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.items || [])]
+    .filter((i) => i.type.startsWith("image/"))
+    .map((i) => i.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return;
+  e.preventDefault();
+  addDialogImageFiles(files);
 });
 $("#pasteZone").addEventListener("click", (e) => {
   if (e.target.tagName !== "INPUT") $("#pasteZone").focus();
 });
 $("#fImages").addEventListener("change", (e) => {
-  for (const f of e.target.files) dialogImages.push(f);
+  const files = [...e.target.files];
   e.target.value = "";
-  renderDialogImages();
+  addDialogImageFiles(files);
 });
 
 $("#itemCancelBtn").addEventListener("click", () => $("#itemDialog").close());
@@ -496,6 +559,20 @@ $("#itemForm").addEventListener("submit", async (e) => {
     .map((r) => ({ k: r.querySelector(".spec-k").value.trim(), v: r.querySelector(".spec-v").value.trim() }))
     .filter((s) => s.k || s.v);
 
+  // 画像: 新規分を保存し、外された既存分を削除
+  const imageIds = [];
+  for (const entry of dialogImages) {
+    imageIds.push(entry.id || await saveNewImage(entry.dataURL));
+  }
+  if (editingItem) {
+    for (const oldId of editingItem.images || []) {
+      if (!imageIds.includes(oldId)) {
+        await dbDelete("images", oldId);
+        imagesById.delete(oldId);
+      }
+    }
+  }
+
   const base = editingItem || { id: uuid(), createdAt: Date.now(), order: wishItems.length };
   const item = {
     ...base,
@@ -507,7 +584,7 @@ $("#itemForm").addEventListener("submit", async (e) => {
     memo: $("#fMemo").value.trim(),
     rating: dialogRating,
     specs,
-    images: dialogImages,
+    images: imageIds,
   };
   await dbPut(editingStore, item);
 
@@ -555,7 +632,6 @@ function sortedBought() {
 }
 
 function renderBought() {
-  revokeUrls("bought");
   const grid = $("#boughtGrid");
   grid.innerHTML = "";
   sortedBought().forEach((item) => {
@@ -565,12 +641,8 @@ function renderBought() {
     card.className = "item-card";
     card.dataset.id = item.id;
 
-    const thumbHtml = item.images && item.images.length
-      ? `<img class="thumb" src="${makeUrl(item.images[0], "bought")}" alt="">`
-      : `<div class="no-thumb">🖼️</div>`;
-
     card.innerHTML = `
-      ${thumbHtml}
+      ${thumbHtmlOf(item)}
       <div class="card-body">
         <div class="c-name">${esc(item.name)}</div>
         <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
@@ -578,6 +650,7 @@ function renderBought() {
           ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
           ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
           <span class="badge">購入: ${item.purchasedAt ? fmtDate(item.purchasedAt) : "不明"}</span>
+          ${item.kakeiboSyncedAt ? `<span class="badge best">💰 家計簿済</span>` : ""}
         </div>
         <div class="cospa-box ${cospa == null ? "no-usage" : ""}">
           ${cospa != null
@@ -589,6 +662,7 @@ function renderBought() {
         ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 商品ページを開く</a>` : ""}
         <div class="card-actions">
           <button class="buy-btn u-log">📅 使用記録</button>
+          <button class="edit-btn k-sync" title="家計簿「遊び代管理」に追加">💰</button>
           <button class="edit-btn">✏️ 編集</button>
           <button class="edit-btn u-back" title="ほしいものリストに戻す">↩</button>
           <button class="danger-btn c-del">🗑</button>
@@ -598,7 +672,8 @@ function renderBought() {
     const img = card.querySelector(".thumb");
     if (img) img.addEventListener("click", () => openViewer(item.images));
     card.querySelector(".u-log").addEventListener("click", () => openUsageDialog(item));
-    card.querySelector(".edit-btn:not(.u-back)").addEventListener("click", () => openItemDialog("bought", item));
+    card.querySelector(".k-sync").addEventListener("click", () => openKakeiboDialog(item));
+    card.querySelector(".edit-btn:not(.u-back):not(.k-sync)").addEventListener("click", () => openItemDialog("bought", item));
     card.querySelector(".u-back").addEventListener("click", async () => {
       if (!confirm(`「${item.name}」をほしいものリストに戻しますか？（使用記録は消えます）`)) return;
       const wish = { ...item, order: wishItems.length };
@@ -613,6 +688,7 @@ function renderBought() {
     });
     card.querySelector(".c-del").addEventListener("click", async () => {
       if (!confirm(`「${item.name}」を削除しますか？`)) return;
+      await deleteItemImages(item);
       await dbDelete("bought", item.id);
       boughtItems = boughtItems.filter((x) => x.id !== item.id);
       renderBought();
@@ -699,7 +775,6 @@ function getComparableGenres() {
 }
 
 function renderCompare() {
-  revokeUrls("dialog");
   const genre = $("#compareGenre").value;
   const box = $("#compareResult");
   const group = wishItems.filter((x) => x.genre === genre);
@@ -708,7 +783,6 @@ function renderCompare() {
     return;
   }
 
-  // スペックキーの和集合
   const specKeys = [];
   group.forEach((it) => (it.specs || []).forEach((s) => {
     if (s.k && !specKeys.includes(s.k)) specKeys.push(s.k);
@@ -722,14 +796,13 @@ function renderCompare() {
   group.forEach((it) => { html += `<th>${esc(it.name)}</th>`; });
   html += `</tr></thead><tbody>`;
 
-  // 画像行
   html += `<tr><td>画像</td>`;
   group.forEach((it) => {
-    html += `<td>${it.images && it.images.length ? `<img src="${makeUrl(it.images[0], "dialog")}" data-viewer="${esc(it.id)}">` : "—"}</td>`;
+    const src = it.images && it.images.length ? imgSrc(it.images[0]) : "";
+    html += `<td>${src ? `<img src="${src}" data-viewer="${esc(it.id)}">` : "—"}</td>`;
   });
   html += `</tr>`;
 
-  // 価格行
   html += `<tr><td>価格</td>`;
   group.forEach((it) => {
     const isBest = it.price != null && it.price === minPrice && prices.length >= 2;
@@ -737,7 +810,6 @@ function renderCompare() {
   });
   html += `</tr>`;
 
-  // ほしい度行
   html += `<tr><td>ほしい度</td>`;
   group.forEach((it) => {
     const isBest = (it.rating || 0) === maxRating && maxRating > 0;
@@ -745,7 +817,6 @@ function renderCompare() {
   });
   html += `</tr>`;
 
-  // スペック行（数値の場合は差を強調）
   specKeys.forEach((key) => {
     const values = group.map((it) => {
       const s = (it.specs || []).find((x) => x.k === key);
@@ -763,7 +834,6 @@ function renderCompare() {
     html += `</tr>`;
   });
 
-  // リンク行
   html += `<tr><td>リンク</td>`;
   group.forEach((it) => {
     html += `<td>${it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">商品ページ</a>` : "—"}</td>`;
@@ -771,7 +841,6 @@ function renderCompare() {
   html += `</tr></tbody></table></div>`;
   if (specKeys.length) html += `<p class="hint">※ 数値スペックは大きい値を強調表示しています（軽さなど小さい方が良い項目はご注意ください）</p>`;
 
-  // ---- おすすめ判定 ----
   const { best, reasons, scored } = pickBest(group);
   html += `<div class="verdict"><h3>🏆 おすすめ: ${esc(best.name)}</h3>`;
   if (reasons.length) html += `<div>${esc(reasons.join("、"))}</div>`;
@@ -810,7 +879,6 @@ $("#recommendBtn").addEventListener("click", () => {
 $("#recommendCloseBtn").addEventListener("click", () => $("#recommendDialog").close());
 
 function renderRecommend() {
-  revokeUrls("dialog");
   const box = $("#recommendResult");
   const byCat = {};
   wishItems.forEach((x) => {
@@ -828,11 +896,11 @@ function renderRecommend() {
     const { best, reasons } = pickBest(group);
     const div = document.createElement("div");
     div.className = "rec-block";
-    const imgHtml = best.images && best.images.length ? `<img src="${makeUrl(best.images[0], "dialog")}">` : "";
+    const src = best.images && best.images.length ? imgSrc(best.images[0]) : "";
     div.innerHTML = `
       <h3>${esc(cat)}（${group.length}件）</h3>
       <div class="rec-pick">
-        ${imgHtml}
+        ${src ? `<img src="${src}">` : ""}
         <div>
           <div class="rec-name">🏆 ${esc(best.name)}${best.price != null ? ` — ${yen(best.price)}` : ""}</div>
           <div class="rec-why">${esc(reasons.join("、") || (group.length === 1 ? "このカテゴリ唯一の候補" : "総合スコア1位"))}</div>
@@ -845,22 +913,19 @@ function renderRecommend() {
 /* ============================================================
    画像ビューア
    ============================================================ */
-let viewerImages = [];
+let viewerImages = []; // 画像IDの配列
 let viewerIdx = 0;
 
-function openViewer(images) {
-  if (!images || !images.length) return;
-  viewerImages = images;
+function openViewer(imageIds) {
+  const ids = (imageIds || []).filter((id) => imagesById.get(id));
+  if (!ids.length) return;
+  viewerImages = ids;
   viewerIdx = 0;
   showViewerImg();
   $("#imageViewer").showModal();
 }
 function showViewerImg() {
-  const img = $("#viewerImg");
-  if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
-  const url = URL.createObjectURL(viewerImages[viewerIdx]);
-  img.src = url;
-  img.dataset.url = url;
+  $("#viewerImg").src = imgSrc(viewerImages[viewerIdx]);
 }
 $("#viewerImg").addEventListener("click", () => {
   if (viewerImages.length > 1) {
@@ -873,49 +938,50 @@ $("#viewerCloseBtn").addEventListener("click", () => $("#imageViewer").close());
 /* ============================================================
    バックアップ（エクスポート／インポート）
    ============================================================ */
-function blobToDataURL(blob) {
-  return new Promise((res) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.readAsDataURL(blob);
-  });
-}
-async function dataURLToBlob(dataUrl) {
-  const r = await fetch(dataUrl);
-  return r.blob();
+function dataURLToBlob(dataUrl) {
+  return fetch(dataUrl).then((r) => r.blob());
 }
 
 async function buildExportData() {
-  const serialize = async (items) => Promise.all(items.map(async (it) => ({
+  const withImages = (items) => items.map((it) => ({
     ...it,
-    images: await Promise.all((it.images || []).map(blobToDataURL)),
-  })));
+    images: (it.images || []).map((id) => imagesById.get(id)).filter(Boolean),
+  }));
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     shopping: shoppingItems,
-    wish: await serialize(wishItems),
-    bought: await serialize(boughtItems),
+    wish: withImages(wishItems),
+    bought: withImages(boughtItems),
   };
 }
 
 async function restoreFromData(data) {
-  const deserialize = async (items) => Promise.all((items || []).map(async (it) => ({
-    ...it,
-    images: await Promise.all((it.images || []).map(dataURLToBlob)),
-  })));
-  const wish = await deserialize(data.wish);
-  const bought = await deserialize(data.bought);
   await dbClear("shopping");
   await dbClear("wish");
   await dbClear("bought");
+  await dbClear("images");
+  imagesById = new Map();
+
+  const restoreItems = async (items, store) => {
+    for (const it of items || []) {
+      const ids = [];
+      for (const src of it.images || []) {
+        // 大きい画像（旧バックアップのPNG等）は取り込み時に再圧縮
+        const dataUrl = src.length > 400000 ? await compressImage(await dataURLToBlob(src)) : src;
+        ids.push(await saveNewImage(dataUrl));
+      }
+      await dbPut(store, { ...it, images: ids });
+    }
+  };
   for (const it of data.shopping || []) await dbPut("shopping", it);
-  for (const it of wish) await dbPut("wish", it);
-  for (const it of bought) await dbPut("bought", it);
-  await init();
+  await restoreItems(data.wish, "wish");
+  await restoreItems(data.bought, "bought");
+  await loadAllData();
 }
 
 $("#exportBtn").addEventListener("click", async () => {
+  if (!currentUser) return;
   const data = await buildExportData();
   const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
   const a = document.createElement("a");
@@ -928,7 +994,7 @@ $("#exportBtn").addEventListener("click", async () => {
 $("#importFile").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = "";
-  if (!file) return;
+  if (!file || !currentUser) return;
   if (!confirm("現在のデータをすべて置き換えて復元します。よろしいですか？")) return;
   try {
     const data = JSON.parse(await file.text());
@@ -940,213 +1006,305 @@ $("#importFile").addEventListener("change", async (e) => {
 });
 
 /* ============================================================
-   Googleログイン & Googleドライブ同期
-   - GIS (Google Identity Services) のトークンで Drive の
-     アプリ専用領域 (appDataFolder) にバックアップを保存/読込
+   家計簿「遊び代管理」連携
+   - 家計簿側: users/{uid}/data/state の1ドキュメントに
+     expenses: [{id, amount, date, categoryId, note, isFromReceipt}]
+     categories: [{id, name, icon, color}] を保持
+   - 同じGoogleアカウントでログインすればUIDが一致する
    ============================================================ */
-const GOOGLE_SCOPES = "https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email";
-const DRIVE_FILENAME = "kaimono-backup.json";
-let gToken = null;      // { access_token, expires_at }
-let gProfile = null;    // { name, email, picture }
-let tokenClient = null;
+const KAKEIBO_CONFIG = {
+  apiKey: "AIzaSyADydfhaPwCNBd_CO2c5qQM0ONmr-FTEZQ",
+  authDomain: "kakeibo-21cf0.firebaseapp.com",
+  projectId: "kakeibo-21cf0",
+  storageBucket: "kakeibo-21cf0.firebasestorage.app",
+  messagingSenderId: "558811122568",
+  appId: "1:558811122568:web:4e08fca088a1eb9579483d",
+};
+// 家計簿アプリのデフォルトカテゴリ（state未取得時のフォールバック）
+const KAKEIBO_DEF_CATS = [
+  { id: "c1", name: "食事", icon: "🍜" },
+  { id: "c2", name: "エンタメ", icon: "🎮" },
+  { id: "c3", name: "ショッピング", icon: "🛍️" },
+  { id: "c4", name: "カフェ", icon: "☕" },
+  { id: "c5", name: "交通", icon: "🚃" },
+  { id: "c6", name: "その他", icon: "💬" },
+];
 
-const getClientId = () => localStorage.getItem("googleClientId") || "";
-const gisReady = () => typeof google !== "undefined" && google.accounts?.oauth2;
+let kApp = null, kAuth = null, kDb = null, kUser = null;
 
-function requestToken() {
-  return new Promise((resolve, reject) => {
-    if (!tokenClient) {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: getClientId(),
-        scope: GOOGLE_SCOPES,
-        callback: () => {},
-      });
-    }
-    tokenClient.callback = (resp) => {
-      if (resp.error) return reject(new Error(resp.error));
-      gToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in - 60) * 1000 };
-      sessionStorage.setItem("gToken", JSON.stringify(gToken));
-      resolve(gToken);
-    };
-    tokenClient.error_callback = (err) => reject(new Error(err.message || err.type || "ログインがキャンセルされました"));
-    tokenClient.requestAccessToken({ prompt: "" });
+// 買い物アプリ自体が家計簿と同じFirebaseプロジェクトなら追加ログイン不要
+const kakeiboSameProject = () => {
+  const c = getFirebaseConfig();
+  return !!(c && c.projectId === KAKEIBO_CONFIG.projectId);
+};
+const getKUser = () => (kakeiboSameProject() ? currentUser : kUser);
+
+function initKakeibo() {
+  if (typeof firebase === "undefined") return;
+  if (kakeiboSameProject()) {
+    if (fapp && !kDb) { kApp = fapp; kAuth = fauth; kDb = fdb; }
+    return;
+  }
+  if (kApp) return;
+  kApp = firebase.apps.find((a) => a.name === "kakeibo") || firebase.initializeApp(KAKEIBO_CONFIG, "kakeibo");
+  kAuth = kApp.auth();
+  kDb = kApp.firestore();
+  kAuth.onAuthStateChanged((u) => {
+    kUser = u;
+    if ($("#kakeiboDialog").open) renderKakeiboDialog();
   });
 }
 
-async function ensureToken() {
-  if (gToken && gToken.expires_at > Date.now()) return;
-  const saved = sessionStorage.getItem("gToken");
-  if (saved) {
-    const t = JSON.parse(saved);
-    if (t.expires_at > Date.now()) { gToken = t; return; }
-  }
-  await requestToken();
+async function kakeiboLogin() {
+  initKakeibo();
+  if (kakeiboSameProject()) return;
+  await kAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
 }
+
+const kStateRef = () => kDb.collection("users").doc(getKUser().uid).collection("data").doc("state");
+
+async function fetchKakeiboState() {
+  const snap = await kStateRef().get();
+  return snap.exists ? snap.data() : null;
+}
+
+function kakeiboCategories(state) {
+  return state && Array.isArray(state.categories) && state.categories.length
+    ? state.categories
+    : KAKEIBO_DEF_CATS;
+}
+
+// ジャンル/カテゴリ名 → 家計簿カテゴリの自動マッチング
+function matchKakeiboCategory(cats, item) {
+  const names = [item.genre, item.category].filter(Boolean);
+  for (const n of names) {
+    const hit = cats.find((c) => c.name === n) || cats.find((c) => c.name.includes(n) || n.includes(c.name));
+    if (hit) return hit;
+  }
+  return cats.find((c) => c.name === "ショッピング") || cats[cats.length - 1];
+}
+
+function buildKakeiboExpense(item, { amount, dateISO, categoryId, note }) {
+  return {
+    id: Date.now().toString(),
+    amount,
+    date: dateISO,
+    categoryId,
+    note,
+    isFromReceipt: false,
+  };
+}
+
+async function kakeiboAddExpense(exp) {
+  const ref = kStateRef();
+  try {
+    await ref.update({ expenses: firebase.firestore.FieldValue.arrayUnion(exp) });
+  } catch (e) {
+    // stateドキュメント未作成（家計簿を一度も使っていないアカウント）の場合
+    await ref.set({ expenses: [exp] }, { merge: true });
+  }
+}
+
+async function markKakeiboSynced(item, expId) {
+  item.kakeiboExpenseId = expId;
+  item.kakeiboSyncedAt = Date.now();
+  await dbPut("bought", item);
+  renderBought();
+}
+
+const kakeiboAutoSyncOn = () => localStorage.getItem("kakeiboAutoSync") === "1";
+
+// 「買った！」直後の自動同期（失敗しても買い物アプリ側の処理は止めない）
+async function autoKakeiboSync(item) {
+  try {
+    if (!kakeiboAutoSyncOn() || item.price == null) return;
+    initKakeibo();
+    if (!getKUser() || !kDb) return; // 家計簿側に未ログインなら手動(💰)に任せる
+    const state = await fetchKakeiboState();
+    const cat = matchKakeiboCategory(kakeiboCategories(state), item);
+    const exp = buildKakeiboExpense(item, {
+      amount: item.price,
+      dateISO: new Date(item.purchasedAt + "T12:00:00").toISOString(),
+      categoryId: cat.id,
+      note: item.name + (item.genre ? `（${item.genre}）` : ""),
+    });
+    await kakeiboAddExpense(exp);
+    await markKakeiboSynced(item, exp.id);
+    toast(`💰 家計簿に自動追加しました（${cat.name}・${yen(item.price)}）`);
+  } catch (err) {
+    console.warn("家計簿への自動同期に失敗:", err);
+    toast("⚠️ 家計簿への自動同期に失敗しました。💰ボタンから手動で追加できます");
+  }
+}
+
+/* ---- 手動同期ダイアログ ---- */
+let kakeiboItem = null;
+let kakeiboCats = KAKEIBO_DEF_CATS;
+
+function openKakeiboDialog(item) {
+  kakeiboItem = item;
+  initKakeibo();
+  renderKakeiboDialog();
+  $("#kakeiboDialog").showModal();
+  if (getKUser() && kDb) {
+    fetchKakeiboState()
+      .then((state) => { kakeiboCats = kakeiboCategories(state); renderKakeiboDialog(); })
+      .catch((err) => {
+        $("#kakeiboBody").insertAdjacentHTML("afterbegin",
+          `<p class="hint" style="color:#ef4444">家計簿データの取得に失敗しました: ${esc(err.message)}</p>`);
+      });
+  }
+}
+
+function renderKakeiboDialog() {
+  const item = kakeiboItem;
+  const body = $("#kakeiboBody");
+  const submitBtn = $("#kakeiboSubmitBtn");
+  if (!item) return;
+
+  if (!getKUser()) {
+    body.innerHTML = `
+      <p class="hint">家計簿「遊び代管理」と同じGoogleアカウントでログインすると、支出データを追加できます（初回のみ）。</p>`;
+    submitBtn.textContent = "Googleでログイン（家計簿側）";
+    return;
+  }
+
+  const matched = matchKakeiboCategory(kakeiboCats, item);
+  const syncedWarn = item.kakeiboSyncedAt
+    ? `<p class="hint" style="color:#b45309">⚠️ この商品は ${new Date(item.kakeiboSyncedAt).toLocaleString("ja-JP")} に同期済みです。もう一度追加すると家計簿に二重登録されます。</p>`
+    : "";
+  body.innerHTML = `
+    ${syncedWarn}
+    <div class="form-grid">
+      <label>金額（円）<input type="number" id="kAmount" min="1" value="${item.price != null ? item.price : ""}" placeholder="金額を入力"></label>
+      <label>日付<input type="date" id="kDate" value="${esc(item.purchasedAt || todayISO())}"></label>
+      <label class="full">家計簿カテゴリ
+        <select id="kCategory">
+          ${kakeiboCats.map((c) => `<option value="${esc(c.id)}" ${c.id === matched.id ? "selected" : ""}>${esc(c.icon || "")} ${esc(c.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="full">メモ<input type="text" id="kNote" value="${esc(item.name + (item.genre ? `（${item.genre}）` : ""))}"></label>
+    </div>
+    <label class="auto-sync-row">
+      <input type="checkbox" id="kAutoSync" ${kakeiboAutoSyncOn() ? "checked" : ""}>
+      今後「🛒 買った！」を押したら自動で家計簿にも追加する
+    </label>`;
+  submitBtn.textContent = "家計簿に追加";
+  $("#kAutoSync").addEventListener("change", (e) => {
+    localStorage.setItem("kakeiboAutoSync", e.target.checked ? "1" : "0");
+  });
+}
+
+$("#kakeiboCancelBtn").addEventListener("click", () => $("#kakeiboDialog").close());
+$("#kakeiboSubmitBtn").addEventListener("click", async () => {
+  const item = kakeiboItem;
+  if (!item) return;
+  if (!getKUser()) {
+    try {
+      await kakeiboLogin();
+      renderKakeiboDialog();
+      const state = await fetchKakeiboState();
+      kakeiboCats = kakeiboCategories(state);
+      renderKakeiboDialog();
+    } catch (err) {
+      if (err.code !== "auth/popup-closed-by-user") alert("ログインに失敗しました: " + (err.message || err.code));
+    }
+    return;
+  }
+  const amount = Number($("#kAmount").value);
+  if (!amount || amount <= 0) { alert("金額を入力してください"); return; }
+  const dateVal = $("#kDate").value || todayISO();
+  if (item.kakeiboSyncedAt && !confirm("同期済みの商品です。家計簿にもう1件追加しますか？")) return;
+  try {
+    const exp = buildKakeiboExpense(item, {
+      amount,
+      dateISO: new Date(dateVal + "T12:00:00").toISOString(),
+      categoryId: $("#kCategory").value,
+      note: $("#kNote").value.trim(),
+    });
+    await kakeiboAddExpense(exp);
+    await markKakeiboSynced(item, exp.id);
+    $("#kakeiboDialog").close();
+    toast(`💰 家計簿に追加しました（${yen(amount)}）`);
+  } catch (err) {
+    alert("家計簿への追加に失敗しました: " + (err.message || err.code) +
+      "\n家計簿アプリと同じGoogleアカウントでログインしているか確認してください。");
+  }
+});
+
+/* ---- トースト通知 ---- */
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 350);
+  }, 3200);
+}
+
+/* ============================================================
+   ログイン / ログアウト / ゲート
+   ============================================================ */
+const G_LOGO = `<svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 
 async function googleLogin() {
   if (location.protocol === "file:") {
-    alert("Googleログインはファイル直開きでは使えません。\n「起動.bat」をダブルクリックしてアプリを開いてください。");
+    alert("ログインはファイル直開きでは使えません。\n「起動.bat」または公開URLから開いてください。");
     return;
   }
-  if (!getClientId()) { openGoogleSetup(); return; }
-  if (!gisReady()) {
-    alert("Googleのログイン部品を読み込めませんでした。インターネット接続を確認してページを再読み込みしてください。");
+  if (typeof firebase === "undefined") {
+    alert("Firebaseの読み込みに失敗しました。インターネット接続を確認してページを再読み込みしてください。");
     return;
   }
+  initFirebase();
   try {
-    await requestToken();
-    const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: "Bearer " + gToken.access_token },
-    });
-    if (!r.ok) throw new Error("プロフィール取得に失敗 (HTTP " + r.status + ")");
-    gProfile = await r.json();
-    localStorage.setItem("gProfile", JSON.stringify(gProfile));
-    renderAuth();
+    await fauth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    // 画面の更新は onAuthStateChanged が行う
   } catch (err) {
-    alert("ログインに失敗しました: " + err.message);
+    if (err.code !== "auth/popup-closed-by-user" && err.code !== "auth/cancelled-popup-request") {
+      alert("ログインに失敗しました: " + (err.message || err.code));
+    }
   }
 }
 
 function googleLogout() {
-  if (gToken && gisReady()) {
-    try { google.accounts.oauth2.revoke(gToken.access_token, () => {}); } catch (e) { /* no-op */ }
-  }
-  gToken = null;
-  gProfile = null;
-  sessionStorage.removeItem("gToken");
-  localStorage.removeItem("gProfile");
-  renderAuth();
+  if (fauth) fauth.signOut();
 }
 
-/* ---- Drive バックアップ ---- */
-const authHeader = () => ({ Authorization: "Bearer " + gToken.access_token });
-
-async function driveFindFile() {
-  const q = encodeURIComponent(`name='${DRIVE_FILENAME}'`);
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime)`, { headers: authHeader() });
-  if (!r.ok) throw new Error("Drive検索に失敗 (HTTP " + r.status + ")");
-  const json = await r.json();
-  return json.files && json.files[0] ? json.files[0] : null;
+function updateGate() {
+  const loggedIn = !!currentUser;
+  $("#loginGate").hidden = loggedIn;
+  document.body.classList.toggle("locked", !loggedIn);
 }
-
-async function driveSaveBackup() {
-  try {
-    await ensureToken();
-    const json = JSON.stringify(await buildExportData());
-    const existing = await driveFindFile();
-    let resp;
-    if (existing) {
-      resp = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media`, {
-        method: "PATCH",
-        headers: { ...authHeader(), "Content-Type": "application/json" },
-        body: json,
-      });
-    } else {
-      const boundary = "kaimono_boundary_" + Date.now();
-      const body =
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-        JSON.stringify({ name: DRIVE_FILENAME, parents: ["appDataFolder"] }) +
-        `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${boundary}--`;
-      resp = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-        method: "POST",
-        headers: { ...authHeader(), "Content-Type": `multipart/related; boundary=${boundary}` },
-        body,
-      });
-    }
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    localStorage.setItem("lastDriveSync", new Date().toISOString());
-    renderAuth();
-    alert("Googleドライブに保存しました。");
-  } catch (err) {
-    alert("Googleドライブへの保存に失敗しました: " + err.message);
-  }
-}
-
-async function driveLoadBackup() {
-  try {
-    await ensureToken();
-    const existing = await driveFindFile();
-    if (!existing) {
-      alert("Googleドライブにまだバックアップがありません。先に「☁️ 保存」してください。");
-      return;
-    }
-    const when = new Date(existing.modifiedTime).toLocaleString("ja-JP");
-    if (!confirm(`Googleドライブのバックアップ（${when} 保存）で現在のデータをすべて置き換えます。よろしいですか？`)) return;
-    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}?alt=media`, { headers: authHeader() });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    await restoreFromData(await r.json());
-    alert("Googleドライブから復元しました。");
-  } catch (err) {
-    alert("Googleドライブからの読み込みに失敗しました: " + err.message);
-  }
-}
-
-/* ---- ログインUI ---- */
-const G_LOGO = `<svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 
 function renderAuth() {
+  updateGate();
   const area = $("#authArea");
-  if (gProfile && gProfile.name) {
-    const last = localStorage.getItem("lastDriveSync");
-    const lastText = last ? "前回の保存: " + new Date(last).toLocaleString("ja-JP") : "まだ保存していません";
+  if (currentUser) {
     area.innerHTML = `
-      ${gProfile.picture ? `<img class="avatar" src="${esc(gProfile.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
-      <span class="auth-name" title="${esc(gProfile.email || "")}">${esc(gProfile.name)}</span>
-      <button id="driveSaveBtn" class="ghost-btn" title="${esc(lastText)}">☁️ 保存</button>
-      <button id="driveLoadBtn" class="ghost-btn" title="Googleドライブのバックアップから復元">☁️ 読込</button>
+      ${currentUser.photoURL ? `<img class="avatar" src="${esc(currentUser.photoURL)}" alt="" referrerpolicy="no-referrer">` : ""}
+      <span class="auth-name" title="${esc(currentUser.email || "")}">${esc(currentUser.displayName || currentUser.email || "ユーザー")}</span>
       <button id="logoutBtn" class="ghost-btn">ログアウト</button>`;
-    $("#driveSaveBtn").addEventListener("click", driveSaveBackup);
-    $("#driveLoadBtn").addEventListener("click", driveLoadBackup);
     $("#logoutBtn").addEventListener("click", googleLogout);
   } else {
-    area.innerHTML = `
-      <button id="loginBtn" class="google-btn">${G_LOGO} Googleでログイン</button>
-      <button id="gSetupBtn" class="ghost-btn" title="Googleログインの設定">⚙️</button>`;
+    area.innerHTML = `<button id="loginBtn" class="google-btn">${G_LOGO} Googleでログイン</button>`;
     $("#loginBtn").addEventListener("click", googleLogin);
-    $("#gSetupBtn").addEventListener("click", openGoogleSetup);
   }
 }
-
-/* ---- 初期設定ダイアログ ---- */
-function openGoogleSetup() {
-  $("#clientIdInput").value = getClientId();
-  $("#googleSetupDialog").showModal();
-}
-$("#setupCancelBtn").addEventListener("click", () => $("#googleSetupDialog").close());
-$("#setupSaveBtn").addEventListener("click", () => {
-  const v = $("#clientIdInput").value.trim();
-  if (v && !v.endsWith(".apps.googleusercontent.com")) {
-    if (!confirm("クライアントIDの形式が通常と異なります（.apps.googleusercontent.com で終わるはずです）。このまま保存しますか？")) return;
-  }
-  localStorage.setItem("googleClientId", v);
-  tokenClient = null; // 新しいIDで作り直す
-  $("#googleSetupDialog").close();
-  if (v) alert("保存しました。「Googleでログイン」からログインできます。");
-});
-
-function initAuth() {
-  try { gProfile = JSON.parse(localStorage.getItem("gProfile") || "null"); } catch (e) { gProfile = null; }
-  const saved = sessionStorage.getItem("gToken");
-  if (saved) {
-    try {
-      const t = JSON.parse(saved);
-      if (t.expires_at > Date.now()) gToken = t;
-    } catch (e) { /* no-op */ }
-  }
-  renderAuth();
-}
-initAuth();
 
 /* ============================================================
-   初期化
+   起動
    ============================================================ */
-async function init() {
-  if (!db) db = await openDB();
-  await loadShopping();
-  await loadWish();
-  await loadBought();
+function boot() {
+  $("#gateLoginBtn").innerHTML = `${G_LOGO} Googleでログイン`;
+  $("#gateLoginBtn").addEventListener("click", googleLogin);
+  if (location.protocol === "file:") {
+    $("#gateNote").textContent = "※ ファイル直開きではログインできません。「起動.bat」または公開URLから開いてください。";
+  }
+  renderAuth();
+  initFirebase(); // ログイン状態を自動復元
 }
-init().catch((err) => {
-  document.body.insertAdjacentHTML("afterbegin",
-    `<div style="background:#fdeeec;color:#c0392b;padding:12px 20px;">データベースを開けませんでした: ${esc(err.message)}</div>`);
-});
+boot();
