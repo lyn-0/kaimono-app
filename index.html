@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -28,9 +28,9 @@
 <header class="app-header">
   <h1><span class="logo-mark">🛍️</span> <span class="logo-text">お買い物マネージャー</span></h1>
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="shopping">🛒 買い物リスト</button>
-    <button class="tab-btn" data-tab="wish">⭐ ほしい・やりたい</button>
-    <button class="tab-btn" data-tab="bought">✅ 買った・やった</button>
+    <button class="tab-btn active" data-tab="shopping"><span class="tab-emoji">🛒 </span>買い物リスト</button>
+    <button class="tab-btn" data-tab="wish"><span class="tab-emoji">⭐ </span>ほしい・やりたい</button>
+    <button class="tab-btn" data-tab="bought"><span class="tab-emoji">✅ </span>買った・やった</button>
   </nav>
   <div class="header-actions">
     <div id="authArea" class="auth-area"></div>
@@ -196,6 +196,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

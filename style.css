@@ -624,7 +624,28 @@ dialog[open] { animation: dialogIn .25s ease; }
   from { opacity: 0; transform: translateY(14px) scale(.98); }
   to { opacity: 1; transform: none; }
 }
-dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spacing: .01em; }
+dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spacing: .01em; padding-right: 36px; }
+
+/* ダイアログ右上の閉じるボタン（スクロールしても上部に残る） */
+.dialog-x {
+  position: sticky;
+  top: -8px;
+  z-index: 6;
+  display: block;
+  margin: -10px -12px -28px auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #eef0f6;
+  color: var(--sub);
+  font-size: .95rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(20, 20, 60, .14);
+  transition: background .2s, color .2s, transform .15s;
+}
+.dialog-x:hover { background: #e2e5f0; color: var(--text); transform: scale(1.06); }
 .wide-dialog { width: min(900px, 94vw); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
@@ -913,11 +934,43 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
   font-size: .88rem;
 }
 
+/* ===== モバイル調整 ===== */
 @media (max-width: 600px) {
   .form-grid { grid-template-columns: 1fr; }
-  .app-header { padding: 12px 14px 10px; }
-  .tabs { order: 3; width: 100%; justify-content: stretch; }
-  .tab-btn { flex: 1; padding: 8px 8px; }
-  .header-actions { margin-left: 0; }
-  main { padding: 20px 14px 80px; }
+
+  /* ヘッダーをコンパクトに */
+  .app-header { padding: 10px 12px 8px; gap: 8px 10px; }
+  .app-header h1 { font-size: 1rem; }
+  .header-actions { margin-left: auto; gap: 6px; }
+  .ghost-btn { padding: 7px 10px; font-size: .76rem; }
+  .google-btn { padding: 7px 12px; font-size: .8rem; }
+  .avatar { width: 26px; height: 26px; }
+  .auth-name { max-width: 76px; font-size: .78rem; }
+
+  /* タブ: 絵文字を隠して3等分に収める */
+  .tabs { order: 3; width: 100%; }
+  .tab-btn { flex: 1; min-width: 0; padding: 8px 2px; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; }
+  .tab-emoji { display: none; }
+
+  main { padding: 16px 12px 76px; }
+
+  /* 買い物リストの入力行 */
+  .quick-add { padding: 6px; gap: 6px; }
+  .quick-add input[type="text"] { padding: 9px 12px; font-size: .92rem; }
+  .quick-add .qty-input { flex: 0 0 64px; }
+  .quick-add .primary-btn { padding: 9px 16px; font-size: .88rem; }
+
+  /* ほしいものツールバー: 追加ボタンは全幅、他は等分 */
+  .wish-toolbar #addWishBtn { width: 100%; }
+  .wish-toolbar select { flex: 1; min-width: 0; }
+  .wish-toolbar .accent-btn { flex: 1; white-space: nowrap; }
+
+  /* ダイアログ */
+  dialog { padding: 20px 16px; width: 94vw; max-height: 90vh; border-radius: 18px; }
+  .dialog-x { margin-right: -6px; }
+  .dialog-actions { margin-top: 16px; }
+  .dialog-actions .primary-btn { flex: 1; }
+
+  .gate-card { padding: 34px 24px; }
+  .compare-table th, .compare-table td { min-width: 110px; font-size: .82rem; padding: 8px; }
 }

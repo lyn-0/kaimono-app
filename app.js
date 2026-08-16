@@ -1378,6 +1378,17 @@ function renderAuth() {
    起動
    ============================================================ */
 function boot() {
+  // 全ダイアログの右上に ✕ 閉じるボタンを挿入
+  document.querySelectorAll("dialog:not(.image-viewer)").forEach((dlg) => {
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "dialog-x";
+    x.setAttribute("aria-label", "閉じる");
+    x.textContent = "✕";
+    x.addEventListener("click", () => dlg.close());
+    dlg.prepend(x);
+  });
+
   $("#gateLoginBtn").innerHTML = `${G_LOGO} Googleでログイン`;
   $("#gateLoginBtn").addEventListener("click", googleLogin);
   if (location.protocol === "file:") {
