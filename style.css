@@ -534,6 +534,7 @@ button { font-family: inherit; }
   color: #5157c9;
 }
 .badge.genre { background: #e8faf1; color: #0e9767; }
+.badge.koto { background: #fdf0f7; color: #c0398f; }
 .badge.best { background: #fef3c7; color: #b45309; }
 .item-card .c-rating { color: #f59e0b; font-size: .88rem; letter-spacing: 3px; }
 .item-card .c-memo { color: var(--sub); font-size: .8rem; white-space: pre-wrap; line-height: 1.6; }
@@ -625,6 +626,32 @@ dialog[open] { animation: dialogIn .25s ease; }
 dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spacing: .01em; }
 .wide-dialog { width: min(900px, 94vw); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+.kind-switch {
+  display: flex;
+  gap: 2px;
+  background: #eceef6;
+  border-radius: 999px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.kind-switch button {
+  flex: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: .88rem;
+  font-weight: 700;
+  padding: 9px 10px;
+  border-radius: 999px;
+  color: var(--sub);
+  transition: color .2s, background .25s, box-shadow .25s;
+}
+.kind-switch button.active {
+  color: #fff;
+  background: var(--grad);
+  box-shadow: 0 3px 10px rgba(99, 102, 241, .35);
+}
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-grid label { display: flex; flex-direction: column; gap: 5px; font-size: .78rem; font-weight: 700; color: var(--sub); letter-spacing: .03em; }

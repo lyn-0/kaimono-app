@@ -29,8 +29,8 @@
   <h1><span class="logo-mark">🛍️</span> <span class="logo-text">お買い物マネージャー</span></h1>
   <nav class="tabs">
     <button class="tab-btn active" data-tab="shopping">🛒 買い物リスト</button>
-    <button class="tab-btn" data-tab="wish">⭐ ほしいもの</button>
-    <button class="tab-btn" data-tab="bought">✅ 買ったもの</button>
+    <button class="tab-btn" data-tab="wish">⭐ ほしい・やりたい</button>
+    <button class="tab-btn" data-tab="bought">✅ 買った・やった</button>
   </nav>
   <div class="header-actions">
     <div id="authArea" class="auth-area"></div>
@@ -58,7 +58,12 @@
   <!-- ===== ほしいものリスト ===== -->
   <section id="tab-wish" class="tab-panel">
     <div class="wish-toolbar">
-      <button id="addWishBtn" class="primary-btn">＋ ほしいものを追加</button>
+      <button id="addWishBtn" class="primary-btn">＋ リストに追加</button>
+      <select id="kindFilter">
+        <option value="all">種類: すべて</option>
+        <option value="mono">🛒 ほしいもの</option>
+        <option value="koto">✨ やりたいこと</option>
+      </select>
       <select id="wishSort">
         <option value="manual">並び順: 手動（ドラッグで入替）</option>
         <option value="priceAsc">価格が安い順</option>
@@ -71,7 +76,7 @@
     <div id="categoryChips" class="chips"></div>
     <div id="categoryBest" class="category-best" hidden></div>
     <div id="wishGrid" class="card-grid"></div>
-    <p id="wishEmpty" class="empty-msg">ほしいものはまだありません。「＋ ほしいものを追加」から登録してください。</p>
+    <p id="wishEmpty" class="empty-msg">ほしいもの・やりたいことはまだありません。<br>「＋ リストに追加」から登録してください。</p>
   </section>
 
   <!-- ===== 買ったものリスト ===== -->
@@ -85,20 +90,24 @@
       </select>
     </div>
     <div id="boughtGrid" class="card-grid"></div>
-    <p id="boughtEmpty" class="empty-msg">買ったものはまだありません。ほしいものリストの「🛒 買った！」から移動できます。</p>
+    <p id="boughtEmpty" class="empty-msg">まだ記録がありません。<br>「⭐ ほしい・やりたい」の「買った！／やった！」ボタンから移動できます。</p>
   </section>
 </main>
 
 <!-- ===== アイテム編集ダイアログ ===== -->
 <dialog id="itemDialog">
   <form id="itemForm" method="dialog">
-    <h2 id="itemDialogTitle">ほしいものを追加</h2>
+    <h2 id="itemDialogTitle">リストに追加</h2>
+    <div class="kind-switch" id="fKind">
+      <button type="button" data-kind="mono" class="active">🛒 ほしいもの</button>
+      <button type="button" data-kind="koto">✨ やりたいこと</button>
+    </div>
     <div class="form-grid">
-      <label>商品名 *<input type="text" id="fName" required placeholder="例: ヘアアイロン SL-010"></label>
+      <label><span id="fNameLabel">商品名 *</span><input type="text" id="fName" required placeholder="例: ヘアアイロン SL-010"></label>
       <label>価格（円）<input type="number" id="fPrice" min="0" step="1" placeholder="例: 12800"></label>
       <label>カテゴリ<input type="text" id="fCategory" list="categoryList" placeholder="例: 美容家電"><datalist id="categoryList"></datalist></label>
       <label>ジャンル（比較用）<input type="text" id="fGenre" list="genreList" placeholder="例: ヘアアイロン"><datalist id="genreList"></datalist></label>
-      <label class="full">商品ページURL<input type="url" id="fUrl" placeholder="https://..."></label>
+      <label class="full"><span id="fUrlLabel">商品ページURL</span><input type="url" id="fUrl" placeholder="https://..."></label>
       <label class="full">ほしい度
         <div id="fRating" class="rating-input" aria-label="ほしい度">
           <button type="button" data-v="1">★</button><button type="button" data-v="2">★</button><button type="button" data-v="3">★</button><button type="button" data-v="4">★</button><button type="button" data-v="5">★</button>

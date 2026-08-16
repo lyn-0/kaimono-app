@@ -138,8 +138,12 @@ let shoppingItems = [];
 let wishItems = [];
 let boughtItems = [];
 let activeCategory = "all";
+let activeKind = "all"; // all | mono(ほしいもの) | koto(やりたいこと)
 let wishSortMode = "manual";
 let boughtSortMode = "newest";
+
+const kindOf = (item) => item.kind || "mono"; // 既存データは「もの」扱い
+const isKoto = (item) => kindOf(item) === "koto";
 
 async function loadAllData() {
   imagesById = new Map((await dbGetAll("images")).map((d) => [d.id, d.data]));
@@ -275,6 +279,7 @@ async function loadWish() {
 
 function sortedWish() {
   let list = [...wishItems];
+  if (activeKind !== "all") list = list.filter((x) => kindOf(x) === activeKind);
   if (activeCategory !== "all") list = list.filter((x) => (x.category || "未分類") === activeCategory);
   switch (wishSortMode) {
     case "priceAsc": list.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)); break;
@@ -316,14 +321,15 @@ function buildWishCard(item, draggable) {
       <div class="c-name">${esc(item.name)}</div>
       <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
       <div class="badges">
+        ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
         ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
         ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
       </div>
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
-      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 商品ページを開く</a>` : ""}
+      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く</a>` : ""}
       ${item.memo ? `<div class="c-memo">${esc(item.memo)}</div>` : ""}
       <div class="card-actions">
-        <button class="buy-btn">🛒 買った！</button>
+        <button class="buy-btn">${isKoto(item) ? "✨ やった！" : "🛒 買った！"}</button>
         <button class="edit-btn">✏️ 編集</button>
         <button class="danger-btn c-del">🗑</button>
       </div>
@@ -333,7 +339,7 @@ function buildWishCard(item, draggable) {
   if (img) img.addEventListener("click", () => openViewer(item.images));
 
   card.querySelector(".buy-btn").addEventListener("click", async () => {
-    if (!confirm(`「${item.name}」を買ったものリストに移動しますか？`)) return;
+    if (!confirm(`「${item.name}」を「買った・やった」リストに移動しますか？`)) return;
     const bought = { ...item, purchasedAt: todayISO(), usages: [] };
     await dbPut("bought", bought);
     await dbDelete("wish", item.id);
@@ -444,6 +450,26 @@ let editingStore = "wish";
 let editingItem = null;   // null = 新規
 let dialogImages = [];    // [{id?, dataURL}] 既存はid付き、新規はdataURLのみ
 let dialogRating = 0;
+let dialogKind = "mono";
+
+// 種類に応じて入力欄のプレースホルダを切り替え
+function applyKindToDialog() {
+  document.querySelectorAll("#fKind button").forEach((b) => b.classList.toggle("active", b.dataset.kind === dialogKind));
+  const koto = dialogKind === "koto";
+  $("#fNameLabel").textContent = koto ? "やりたいこと *" : "商品名 *";
+  $("#fUrlLabel").textContent = koto ? "参考URL（クリニック・予約ページなど）" : "商品ページURL";
+  $("#fName").placeholder = koto ? "例: 医療脱毛 全身5回コース" : "例: ヘアアイロン SL-010";
+  $("#fPrice").placeholder = koto ? "例: 98000" : "例: 12800";
+  $("#fCategory").placeholder = koto ? "例: 美容医療" : "例: 美容家電";
+  $("#fGenre").placeholder = koto ? "例: 医療脱毛（クリニック比較用）" : "例: ヘアアイロン";
+  $("#fUrl").placeholder = koto ? "クリニック・予約ページなどのURL" : "https://...";
+}
+document.querySelectorAll("#fKind button").forEach((b) => {
+  b.addEventListener("click", () => {
+    dialogKind = b.dataset.kind;
+    applyKindToDialog();
+  });
+});
 
 function openItemDialog(store, item) {
   editingStore = store;
@@ -452,8 +478,10 @@ function openItemDialog(store, item) {
     ? (item.images || []).map((id) => ({ id, dataURL: imgSrc(id) })).filter((e) => e.dataURL)
     : [];
   dialogRating = item ? item.rating || 0 : 0;
+  dialogKind = item ? kindOf(item) : (activeKind === "koto" ? "koto" : "mono");
+  applyKindToDialog();
 
-  $("#itemDialogTitle").textContent = item ? "アイテムを編集" : "ほしいものを追加";
+  $("#itemDialogTitle").textContent = item ? "アイテムを編集" : "リストに追加";
   $("#fName").value = item ? item.name : "";
   $("#fPrice").value = item && item.price != null ? item.price : "";
   $("#fCategory").value = item ? item.category || "" : "";
@@ -576,6 +604,7 @@ $("#itemForm").addEventListener("submit", async (e) => {
   const base = editingItem || { id: uuid(), createdAt: Date.now(), order: wishItems.length };
   const item = {
     ...base,
+    kind: dialogKind,
     name,
     price: priceRaw === "" ? null : Number(priceRaw),
     category: $("#fCategory").value.trim(),
@@ -649,6 +678,10 @@ $("#wishSort").addEventListener("change", (e) => {
   wishSortMode = e.target.value;
   renderWish();
 });
+$("#kindFilter").addEventListener("change", (e) => {
+  activeKind = e.target.value;
+  renderWish();
+});
 
 /* ============================================================
    買ったものリスト（使用記録・コスパ）
@@ -691,9 +724,10 @@ function renderBought() {
         <div class="c-name">${esc(item.name)}</div>
         <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
         <div class="badges">
+          ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
           ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
           ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
-          <span class="badge">購入: ${item.purchasedAt ? fmtDate(item.purchasedAt) : "不明"}</span>
+          <span class="badge">${isKoto(item) ? "実施" : "購入"}: ${item.purchasedAt ? fmtDate(item.purchasedAt) : "不明"}</span>
           ${item.kakeiboSyncedAt ? `<span class="badge best">💰 家計簿済</span>` : ""}
         </div>
         <div class="cospa-box ${cospa == null ? "no-usage" : ""}">
@@ -703,7 +737,7 @@ function renderBought() {
               ? `<div>使用 ${uses} 回（価格未設定のためコスパ計算不可）</div>`
               : `<div>まだ使用記録がありません</div>`}
         </div>
-        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 商品ページを開く</a>` : ""}
+        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く</a>` : ""}
         <div class="card-actions">
           <button class="buy-btn u-log">📅 使用記録</button>
           <button class="edit-btn k-sync" title="家計簿「遊び代管理」に追加">💰</button>
@@ -719,7 +753,7 @@ function renderBought() {
     card.querySelector(".k-sync").addEventListener("click", () => openKakeiboDialog(item));
     card.querySelector(".edit-btn:not(.u-back):not(.k-sync)").addEventListener("click", () => openItemDialog("bought", item));
     card.querySelector(".u-back").addEventListener("click", async () => {
-      if (!confirm(`「${item.name}」をほしいものリストに戻しますか？（使用記録は消えます）`)) return;
+      if (!confirm(`「${item.name}」を「ほしい・やりたい」リストに戻しますか？（使用記録は消えます）`)) return;
       const wish = { ...item, order: wishItems.length };
       delete wish.purchasedAt;
       delete wish.usages;
