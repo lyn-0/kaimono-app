@@ -4,10 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>お買い物マネージャー</title>
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#6366f1">
 <link rel="stylesheet" href="style.css">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
+<!-- ===== ログインゲート（ログインするまでアプリを隠す） ===== -->
+<div id="loginGate" class="login-gate" hidden>
+  <div class="gate-card">
+    <div class="gate-logo">🛍️</div>
+    <h2 class="gate-title">お買い物マネージャー</h2>
+    <p class="gate-desc">買い物リスト・ほしいものリスト・コスパ管理をひとつで。<br>Googleアカウントでログインして始めましょう。</p>
+    <button id="gateLoginBtn" class="google-btn gate-login-btn"></button>
+    <p id="gateNote" class="hint"></p>
+  </div>
+</div>
+
 <header class="app-header">
   <h1><span class="logo-mark">🛍️</span> <span class="logo-text">お買い物マネージャー</span></h1>
   <nav class="tabs">
@@ -153,24 +170,13 @@
   </div>
 </dialog>
 
-<!-- ===== Googleログイン初期設定ダイアログ ===== -->
-<dialog id="googleSetupDialog" class="wide-dialog">
-  <h2>🔑 Googleログインの初期設定</h2>
-  <p class="hint">初回のみ、Google Cloud で「クライアントID」を無料で発行して貼り付ける必要があります（5分程度・クレジットカード不要）。<br>
-  ログインすると、アプリのデータ（スクショ込み）を自分のGoogleドライブに保存・復元できるようになります。</p>
-  <ol class="setup-steps">
-    <li><a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> を開いてGoogleアカウントでログインし、画面上部から<b>新しいプロジェクトを作成</b>（名前は自由。例: kaimono-app）</li>
-    <li>左メニュー「APIとサービス」→「ライブラリ」で <b>Google Drive API</b> を検索して<b>有効化</b></li>
-    <li>「APIとサービス」→「OAuth同意画面」で <b>外部</b> を選び、アプリ名と自分のメールアドレスを入力して保存。「テストユーザー」に<b>自分のGmailアドレスを追加</b></li>
-    <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「<b>OAuthクライアントID</b>」で、種類は「<b>ウェブアプリケーション</b>」を選択。「承認済みのJavaScript生成元」に <code>http://localhost:8765</code> を追加して作成</li>
-    <li>表示された<b>クライアントID</b>（xxxx.apps.googleusercontent.com）を下に貼り付けて保存</li>
-  </ol>
-  <label class="client-id-label">クライアントID
-    <input type="text" id="clientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
-  </label>
+<!-- ===== 家計簿（遊び代管理）同期ダイアログ ===== -->
+<dialog id="kakeiboDialog">
+  <h2>💰 家計簿「遊び代管理」へ追加</h2>
+  <div id="kakeiboBody"></div>
   <div class="dialog-actions">
-    <button type="button" id="setupCancelBtn" class="ghost-btn">閉じる</button>
-    <button type="button" id="setupSaveBtn" class="primary-btn">保存</button>
+    <button type="button" id="kakeiboCancelBtn" class="ghost-btn">閉じる</button>
+    <button type="button" id="kakeiboSubmitBtn" class="primary-btn">家計簿に追加</button>
   </div>
 </dialog>
 

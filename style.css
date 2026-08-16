@@ -99,6 +99,96 @@ body {
 }
 .header-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; flex-wrap: wrap; }
 
+/* ===== 家計簿同期・トースト ===== */
+.form-grid select {
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: .95rem;
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 500;
+  background: #fbfbfe;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .2s, box-shadow .2s;
+}
+.form-grid select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, .12); }
+.auto-sync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--sub);
+  cursor: pointer;
+}
+.auto-sync-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 20px);
+  background: rgba(24, 26, 46, .92);
+  color: #fff;
+  font-size: .88rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: 999px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .3);
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  z-index: 200;
+  max-width: 90vw;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ===== ログインゲート ===== */
+.login-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    radial-gradient(800px 500px at 80% -10%, rgba(139, 92, 246, .18), transparent 60%),
+    radial-gradient(700px 400px at 5% 100%, rgba(99, 102, 241, .14), transparent 60%),
+    var(--bg);
+}
+.login-gate[hidden] { display: none; }
+body.locked { overflow: hidden; }
+.gate-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  box-shadow: 0 24px 80px rgba(60, 50, 180, .18);
+  padding: 44px 40px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: fadeUp .4s ease;
+}
+.gate-logo { font-size: 3.2rem; line-height: 1; }
+.gate-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: .02em;
+  background: linear-gradient(135deg, #1a1d29 30%, #6366f1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.gate-desc { margin: 0; color: var(--sub); font-size: .9rem; line-height: 1.9; }
+.gate-login-btn { font-size: .95rem; padding: 12px 26px; margin-top: 6px; }
+
 /* ===== Googleログイン ===== */
 .auth-area { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .google-btn {
@@ -152,17 +242,30 @@ body {
   letter-spacing: .03em;
   margin-top: 12px;
 }
-.client-id-label input {
+.client-id-label input, .client-id-label textarea {
   padding: 11px 13px;
   border: 1.5px solid var(--border);
   border-radius: 10px;
-  font-size: .92rem;
-  font-family: inherit;
+  font-size: .88rem;
+  font-family: Consolas, "Courier New", monospace;
   background: #fbfbfe;
   outline: none;
   transition: border-color .2s, box-shadow .2s;
+  resize: vertical;
 }
-.client-id-label input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, .12); }
+.client-id-label input:focus, .client-id-label textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, .12); }
+.code-block {
+  background: #f7f8fd;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: .76rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: Consolas, "Courier New", monospace;
+  margin: 8px 0;
+}
 
 main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 100px; }
 
