@@ -454,6 +454,7 @@ let dialogKind = "mono";
 
 // 種類に応じて入力欄のプレースホルダを切り替え
 function applyKindToDialog() {
+  $("#fKind").classList.toggle("koto", dialogKind === "koto");
   document.querySelectorAll("#fKind button").forEach((b) => b.classList.toggle("active", b.dataset.kind === dialogKind));
   const koto = dialogKind === "koto";
   $("#fNameLabel").textContent = koto ? "やりたいこと *" : "商品名 *";

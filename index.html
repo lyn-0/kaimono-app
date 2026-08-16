@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -99,6 +99,7 @@
   <form id="itemForm" method="dialog">
     <h2 id="itemDialogTitle">リストに追加</h2>
     <div class="kind-switch" id="fKind">
+      <span class="kind-thumb" aria-hidden="true"></span>
       <button type="button" data-kind="mono" class="active">🛒 ほしいもの</button>
       <button type="button" data-kind="koto">✨ やりたいこと</button>
     </div>
@@ -195,6 +196,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
