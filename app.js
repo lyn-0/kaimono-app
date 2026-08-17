@@ -860,37 +860,52 @@ async function autoFetchSpotInfo(itemId) {
         }
       } catch (e) { /* 住所なしで続行 */ }
     }
-    // 業種(ジャンル): Googleマップの説明「★★★★☆ · Women's clothing store」から抽出して日本語化
-    if (!cur.genre && mlDesc && !/^Find local businesses/i.test(mlDesc)) {
-      const cat = mlDesc.split(/\s*·\s*/).map((s) => s.trim()).find((s) => s && !/^[★☆\d.\s()]+$/.test(s));
-      if (cat) { cur.genre = jaSpotGenre(cat); changed = true; }
-    }
     // 短縮リンク(maps.app.goo.gl)でURL展開できない場合:
-    // Microlinkのtitle「店名 · 住所(郵便番号入り)」から抽出する
+    // Microlinkのtitle/descriptionを「·」で分割し、各セグメントを内容で分類する。
+    // 場所によって形式が異なるため位置に頼らない:
+    //   パターンA: title「店名 · 住所」        desc「★★★★☆ · 業種」
+    //   パターンB: title「店名 · 4.4★(584) · 業種」 desc「Japan, 〒... 住所」
     if (mlTitle && !/^Google\s*(Maps|マップ)/i.test(mlTitle)) {
-      const [namePart, ...rest] = mlTitle.split(/\s*·\s*/);
+      const titleParts = mlTitle.split(/\s*·\s*/);
+      const namePart = (titleParts[0] || "").trim();
       if ((!cur.name || cur.name === PENDING_NAME) && namePart && !/^Google/i.test(namePart)) {
-        cur.name = namePart.trim();
+        cur.name = namePart;
         changed = true;
       }
-      const addrText = rest.join(" ").replace(/,?\s*Japan$/i, "").trim();
-      const zip = addrText.match(/(\d{3})-?(\d{4})/);
-      if (zip && (!cur.address || !cur.category)) {
-        try {
-          // 郵便番号 → 日本語住所（zipcloud・無料）
-          const z = await (await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip[1]}${zip[2]}`)).json();
-          const r0 = z?.results?.[0];
-          if (r0) {
-            const chome = addrText.match(/(\d+)\s*Chome[-\s]?([\d-]+)/i);
-            if (!cur.address) {
-              cur.address = `〒${zip[1]}-${zip[2]} ${r0.address1}${r0.address2}${r0.address3}${chome ? chome[1] + "丁目" + chome[2] : ""}`;
-              changed = true;
-            }
-            if (!cur.category) { cur.category = `${r0.address1} ${r0.address2}`; changed = true; }
-          }
-        } catch (e) { /* 郵便番号変換なしで続行 */ }
+      const descParts = (mlDesc && !/^Find local businesses/i.test(mlDesc)) ? mlDesc.split(/\s*·\s*/) : [];
+      let addrText = "";
+      let genreText = "";
+      for (const raw of [...titleParts.slice(1), ...descParts]) {
+        if (/^[\d.]+\s*★|^★+☆*$|^\(\d[\d,]*\)$/.test(raw.trim())) continue; // 評価セグメントは無視
+        const seg = raw.replace(/[−–—]/g, "-").replace(/,?\s*Japan,?\s*/i, " ").trim();
+        if (!seg) continue;
+        if (/〒|\d{3}-?\d{4}|Chome|[都道府県]|[市区町村]/.test(seg)) { if (!addrText) addrText = seg; }
+        else if (!genreText) genreText = seg;
       }
-      if (!cur.address && addrText) { cur.address = addrText; changed = true; }
+      if (!cur.genre && genreText) { cur.genre = jaSpotGenre(genreText); changed = true; }
+      if (addrText) {
+        const zip = addrText.match(/(\d{3})-?(\d{4})/);
+        if (zip && (!cur.address || !cur.category)) {
+          try {
+            // 郵便番号 → 日本語住所（zipcloud・無料）
+            const z = await (await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip[1]}${zip[2]}`)).json();
+            const r0 = z?.results?.[0];
+            if (r0) {
+              const chome = addrText.match(/(\d+)\s*Chome[-\s]?([\d-]+)/i);
+              if (!cur.address) {
+                cur.address = `〒${zip[1]}-${zip[2]} ${r0.address1}${r0.address2}${r0.address3}${chome ? chome[1] + "丁目" + chome[2] : ""}`;
+                changed = true;
+              }
+              if (!cur.category) { cur.category = `${r0.address1} ${r0.address2}`; changed = true; }
+            }
+          } catch (e) { /* 郵便番号変換なしで続行 */ }
+        }
+        if (!cur.address) { cur.address = addrText; changed = true; }
+        if (!cur.category) {
+          const reg = regionFromAddress(addrText);
+          if (reg) { cur.category = reg; changed = true; }
+        }
+      }
     }
     if (!(cur.images || []).length && mapImageUrl) {
       const blob = await fetchViaWeserv(mapImageUrl);
@@ -1218,38 +1233,18 @@ function renderSpots() {
 
   const src = (spotView === "want" ? wishItems : boughtItems).filter(isSpot);
 
-  // 地域チップ
-  const chipWrap = $("#spotRegionChips");
-  chipWrap.innerHTML = "";
+  // 地域・ジャンルの絞り込みプルダウン（表示中ビューの内容から選択肢を再構築）
   const regions = [...new Set(src.map((x) => x.category || "未分類"))].sort((a, b) => a.localeCompare(b, "ja"));
   if (spotRegion !== "all" && !regions.includes(spotRegion)) spotRegion = "all";
-  const mkChip = (label, value) => {
-    const b = document.createElement("button");
-    b.className = "chip" + (spotRegion === value ? " active" : "");
-    b.textContent = label;
-    b.addEventListener("click", () => { spotRegion = value; renderSpots(); });
-    return b;
-  };
-  chipWrap.appendChild(mkChip("📍 すべて", "all"));
-  regions.forEach((r) => chipWrap.appendChild(mkChip(r, r)));
+  const regionSel = $("#spotRegionFilter");
+  regionSel.innerHTML = `<option value="all">📍 地域: すべて</option>` + regions.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join("");
+  regionSel.value = spotRegion;
 
-  // ジャンルチップ
-  const genreWrap = $("#spotGenreChips");
-  genreWrap.innerHTML = "";
   const genres = [...new Set(src.map((x) => x.genre || "未分類"))].sort((a, b) => a.localeCompare(b, "ja"));
   if (spotGenre !== "all" && !genres.includes(spotGenre)) spotGenre = "all";
-  const mkGenreChip = (label, value) => {
-    const b = document.createElement("button");
-    b.className = "chip" + (spotGenre === value ? " active" : "");
-    b.textContent = label;
-    b.addEventListener("click", () => { spotGenre = value; renderSpots(); });
-    return b;
-  };
-  genreWrap.hidden = genres.length < 2;
-  if (!genreWrap.hidden) {
-    genreWrap.appendChild(mkGenreChip("🏷️ すべて", "all"));
-    genres.forEach((g) => genreWrap.appendChild(mkGenreChip(g, g)));
-  }
+  const genreSel = $("#spotGenreFilter");
+  genreSel.innerHTML = `<option value="all">🏷️ ジャンル: すべて</option>` + genres.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  genreSel.value = spotGenre;
 
   let list = src;
   if (spotRegion !== "all") list = list.filter((x) => (x.category || "未分類") === spotRegion);
@@ -1283,6 +1278,14 @@ document.querySelectorAll("#spotViewSwitch button").forEach((b) => {
 });
 $("#spotSort").addEventListener("change", (e) => {
   spotSortMode = e.target.value;
+  renderSpots();
+});
+$("#spotRegionFilter").addEventListener("change", (e) => {
+  spotRegion = e.target.value;
+  renderSpots();
+});
+$("#spotGenreFilter").addEventListener("change", (e) => {
+  spotGenre = e.target.value;
   renderSpots();
 });
 

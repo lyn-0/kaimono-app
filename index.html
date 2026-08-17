@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=16">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -110,8 +110,10 @@
         <option value="genre">ジャンル順</option>
       </select>
     </div>
-    <div id="spotRegionChips" class="chips"></div>
-    <div id="spotGenreChips" class="chips"></div>
+    <div class="wish-toolbar spot-filters">
+      <select id="spotRegionFilter"><option value="all">📍 地域: すべて</option></select>
+      <select id="spotGenreFilter"><option value="all">🏷️ ジャンル: すべて</option></select>
+    </div>
     <div id="spotGrid" class="card-grid"></div>
     <p id="spotEmpty" class="empty-msg">行きたいスポットはまだありません。</p>
   </section>
@@ -221,6 +223,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=14"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

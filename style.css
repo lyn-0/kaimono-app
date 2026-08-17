@@ -986,4 +986,26 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
 
   .gate-card { padding: 34px 24px; }
   .compare-table th, .compare-table td { min-width: 110px; font-size: .82rem; padding: 8px; }
+
+  /* カードを2カラムに（ほしい・やりたい / スポット / 買った・やった 共通） */
+  .card-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .item-card { border-radius: 14px; }
+  .item-card .thumb, .item-card .no-thumb { height: 110px; }
+  .item-card .no-thumb { font-size: 1.8rem; }
+  .item-card .thumb-count { top: 84px; right: 6px; font-size: .62rem; padding: 2px 7px; }
+  .item-card .card-body { padding: 9px 10px 10px; gap: 5px; }
+  .item-card .c-name { font-size: .82rem; line-height: 1.35; }
+  .item-card .c-price { font-size: .95rem; }
+  .item-card .c-price.no-price { font-size: .72rem; }
+  .badge { font-size: .62rem; padding: 2px 7px; }
+  .item-card .c-rating { font-size: .72rem; letter-spacing: 2px; }
+  .item-card .c-link, .item-card .c-memo, .c-address { font-size: .7rem; }
+  .item-card .card-actions { gap: 4px; padding-top: 6px; }
+  .buy-btn { flex: 1 1 100%; padding: 8px 6px; font-size: .78rem; }
+  .item-card .edit-btn { padding: 7px 6px; font-size: .72rem; flex: 1; }
+  .item-card .danger-btn { padding: 5px 5px; font-size: .78rem; }
+  .cospa-box { padding: 7px 8px; font-size: .72rem; border-radius: 9px; }
+  .cospa-box .cospa-main { font-size: .88rem; }
+  .cospa-box .cospa-sub { font-size: .66rem; }
+  .card-grip { top: 6px; left: 6px; padding: 1px 6px; font-size: .7rem; }
 }
