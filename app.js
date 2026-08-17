@@ -144,6 +144,8 @@ let boughtSortMode = "newest";
 
 const kindOf = (item) => item.kind || "mono"; // 既存データは「もの」扱い
 const isKoto = (item) => kindOf(item) === "koto";
+const isSpot = (item) => kindOf(item) === "spot";
+const PENDING_NAME = "（スポット情報を取得中…）";
 
 async function loadAllData() {
   imagesById = new Map((await dbGetAll("images")).map((d) => [d.id, d.data]));
@@ -285,6 +287,7 @@ function sortedWish() {
     case "priceAsc": list.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity)); break;
     case "priceDesc": list.sort((a, b) => (b.price ?? -1) - (a.price ?? -1)); break;
     case "newest": list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); break;
+    case "region": list.sort((a, b) => (a.category || "未分類").localeCompare(b.category || "未分類", "ja")); break;
     default: break; // manual: order順のまま
   }
   return list;
@@ -322,14 +325,16 @@ function buildWishCard(item, draggable) {
       <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
       <div class="badges">
         ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
+        ${isSpot(item) ? `<span class="badge spot">📍 スポット</span>` : ""}
         ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
         ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
       </div>
+      ${item.address ? `<div class="c-address">📍 ${esc(item.address)}</div>` : ""}
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
-      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く</a>` : ""}
+      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
       ${item.memo ? `<div class="c-memo">${esc(item.memo)}</div>` : ""}
       <div class="card-actions">
-        <button class="buy-btn">${isKoto(item) ? "✨ やった！" : "🛒 買った！"}</button>
+        <button class="buy-btn">${isSpot(item) ? "🚩 行った！" : isKoto(item) ? "✨ やった！" : "🛒 買った！"}</button>
         <button class="edit-btn">✏️ 編集</button>
         <button class="danger-btn c-del">🗑</button>
       </div>
@@ -452,18 +457,23 @@ let dialogImages = [];    // [{id?, dataURL}] 既存はid付き、新規はdataU
 let dialogRating = 0;
 let dialogKind = "mono";
 
-// 種類に応じて入力欄のプレースホルダを切り替え
+// 種類に応じて入力欄のラベル・プレースホルダを切り替え
 function applyKindToDialog() {
   $("#fKind").classList.toggle("koto", dialogKind === "koto");
+  $("#fKind").classList.toggle("spot", dialogKind === "spot");
   document.querySelectorAll("#fKind button").forEach((b) => b.classList.toggle("active", b.dataset.kind === dialogKind));
   const koto = dialogKind === "koto";
-  $("#fNameLabel").textContent = koto ? "やりたいこと *" : "商品名 *";
-  $("#fUrlLabel").textContent = koto ? "参考URL（クリニック・予約ページなど）" : "商品ページURL";
-  $("#fName").placeholder = koto ? "例: 医療脱毛 全身5回コース" : "例: ヘアアイロン SL-010";
-  $("#fPrice").placeholder = koto ? "例: 98000" : "例: 12800";
-  $("#fCategory").placeholder = koto ? "例: 美容医療" : "例: 美容家電";
-  $("#fGenre").placeholder = koto ? "例: 医療脱毛（クリニック比較用）" : "例: ヘアアイロン";
-  $("#fUrl").placeholder = koto ? "クリニック・予約ページなどのURL" : "https://...";
+  const spot = dialogKind === "spot";
+  $("#fNameLabel").textContent = spot ? "スポット名（URLがあれば自動取得）" : koto ? "やりたいこと *" : "商品名 *";
+  $("#fCategoryLabel").textContent = spot ? "地域（自動取得・絞り込みに使われます）" : "カテゴリ";
+  $("#fUrlLabel").textContent = spot ? "GoogleマップURL" : koto ? "参考URL（クリニック・予約ページなど）" : "商品ページURL";
+  $("#fName").placeholder = spot ? "例: 東京タワー" : koto ? "例: 医療脱毛 全身5回コース" : "例: ヘアアイロン SL-010";
+  $("#fPrice").placeholder = spot ? "予算があれば（例: 3000）" : koto ? "例: 98000" : "例: 12800";
+  $("#fCategory").placeholder = spot ? "例: 東京都 港区" : koto ? "例: 美容医療" : "例: 美容家電";
+  $("#fGenre").placeholder = spot ? "例: カフェ（比較用・任意）" : koto ? "例: 医療脱毛（クリニック比較用）" : "例: ヘアアイロン";
+  $("#fUrl").placeholder = spot ? "https://maps.app.goo.gl/... など" : koto ? "クリニック・予約ページなどのURL" : "https://...";
+  $("#fName").required = !spot;
+  $("#fAddressRow").hidden = !spot;
 }
 document.querySelectorAll("#fKind button").forEach((b) => {
   b.addEventListener("click", () => {
@@ -479,8 +489,9 @@ function openItemDialog(store, item) {
     ? (item.images || []).map((id) => ({ id, dataURL: imgSrc(id) })).filter((e) => e.dataURL)
     : [];
   dialogRating = item ? item.rating || 0 : 0;
-  dialogKind = item ? kindOf(item) : (activeKind === "koto" ? "koto" : "mono");
+  dialogKind = item ? kindOf(item) : (activeKind !== "all" ? activeKind : "mono");
   applyKindToDialog();
+  $("#fAddress").value = item ? item.address || "" : "";
 
   $("#itemDialogTitle").textContent = item ? "アイテムを編集" : "リストに追加";
   $("#fName").value = item ? item.name : "";
@@ -581,8 +592,12 @@ $("#itemCancelBtn").addEventListener("click", () => $("#itemDialog").close());
 
 $("#itemForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const name = $("#fName").value.trim();
-  if (!name) return;
+  let name = $("#fName").value.trim();
+  if (!name) {
+    // スポットはURLがあれば名前を自動取得するので未入力OK
+    if (dialogKind === "spot" && $("#fUrl").value.trim()) name = PENDING_NAME;
+    else { alert("名前を入力してください"); return; }
+  }
   const priceRaw = $("#fPrice").value;
   const specs = [...document.querySelectorAll("#specRows .spec-row")]
     .map((r) => ({ k: r.querySelector(".spec-k").value.trim(), v: r.querySelector(".spec-v").value.trim() }))
@@ -615,6 +630,7 @@ $("#itemForm").addEventListener("submit", async (e) => {
     rating: dialogRating,
     specs,
     images: imageIds,
+    address: $("#fAddress").value.trim(),
   };
   await dbPut(editingStore, item);
 
@@ -622,8 +638,14 @@ $("#itemForm").addEventListener("submit", async (e) => {
     const idx = wishItems.findIndex((x) => x.id === item.id);
     if (idx >= 0) wishItems[idx] = item; else wishItems.push(item);
     renderWish();
-    // 画像なし & URLあり → 商品ページのスクショを自動登録（非同期）
-    if (!item.images.length && item.url) autoFetchScreenshot(item.id);
+    // URLからの自動取得（非同期）: スポットは名前・住所・地域・地図画像 / それ以外は画像・価格・ジャンル
+    if (isSpot(item)) {
+      if (item.url && (item.name === PENDING_NAME || !item.address || !item.category || !item.images.length)) {
+        autoFetchSpotInfo(item.id);
+      }
+    } else if (item.url && (!item.images.length || item.price == null || !item.genre)) {
+      autoFetchProductInfo(item.id);
+    }
   } else {
     const idx = boughtItems.findIndex((x) => x.id === item.id);
     if (idx >= 0) boughtItems[idx] = item; else boughtItems.push(item);
@@ -632,15 +654,47 @@ $("#itemForm").addEventListener("submit", async (e) => {
   $("#itemDialog").close();
 });
 
-/* ---- 商品URLからのスクショ自動取得 ----
-   ブラウザ単体では他サイトのスクショは撮れないため、
-   無料のスクショ生成サービス mShots (WordPress) を
-   CORS対応プロキシ (images.weserv.nl) 経由で取得する。 */
+/* ---- 商品URLからの画像自動取得 ----
+   ① Microlink API で商品ページのメイン画像(og:image)を取得
+      （Amazon・楽天などスクショ生成が効かないECサイトはこちらで取れる）
+   ② 取れなければ mShots (WordPress) のページスクショにフォールバック
+   どちらも CORS対応プロキシ (images.weserv.nl) 経由で画像を取得する。 */
+async function fetchViaWeserv(imageUrl) {
+  const prox = "https://images.weserv.nl/?w=1000&output=jpg&url=" + encodeURIComponent(imageUrl);
+  const resp = await fetch(prox, { cache: "no-store" });
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  if (!blob.type.startsWith("image/") || blob.size < 3000) return null;
+  // ロゴやファビコンのような小さすぎる画像は除外
+  try {
+    const bmp = await createImageBitmap(blob);
+    const ok = Math.min(bmp.width, bmp.height) >= 150;
+    bmp.close();
+    if (!ok) return null;
+  } catch (e) { return null; }
+  return blob;
+}
+
+// ① メタ画像（og:image等）
+async function fetchMetaImage(url) {
+  try {
+    const r = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(url));
+    if (!r.ok) return null;
+    const j = await r.json();
+    const imgUrl = j?.data?.image?.url;
+    if (j.status !== "success" || !imgUrl) return null;
+    return await fetchViaWeserv(imgUrl);
+  } catch (e) {
+    return null;
+  }
+}
+
+// ② ページスクショ（mShots・生成完了までポーリング）
 async function fetchUrlScreenshot(url) {
   const mshots = "https://s0.wp.com/mshots/v1/" + encodeURIComponent(url) + "?w=1200";
   const proxied = "https://images.weserv.nl/?url=" + encodeURIComponent(mshots);
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 4000)); // スクショ生成待ち
+  for (let attempt = 0; attempt < 7; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 5000)); // スクショ生成待ち
     try {
       const resp = await fetch(proxied, { cache: "no-store" });
       if (!resp.ok) continue;
@@ -652,25 +706,238 @@ async function fetchUrlScreenshot(url) {
   return null;
 }
 
-async function autoFetchScreenshot(itemId) {
-  const item = wishItems.find((x) => x.id === itemId);
-  if (!item || (item.images && item.images.length) || !item.url) return;
-  toast("📷 商品ページのスクショを取得中...（数十秒かかることがあります）");
+/* ---- スポット: GoogleマップURLからの情報自動取得 ----
+   ・スポット名: URLの /maps/place/名前 部分から抽出
+   ・短縮リンク(maps.app.goo.gl): Microlinkで展開してから抽出
+   ・住所/地域: URL内の座標 @lat,lng を OpenStreetMap Nominatim で逆ジオコーディング
+   ・画像: Microlinkが返す地図サムネイル(og:image) */
+function parseMapsUrl(u) {
+  const out = { name: null, lat: null, lng: null };
+  if (!u) return out;
   try {
-    const blob = await fetchUrlScreenshot(item.url);
-    if (!blob) throw new Error("スクショの生成がタイムアウトしました");
-    const dataURL = await compressImage(blob);
-    // 取得中にユーザーが画像を追加/削除した場合は上書きしない
+    const m = u.match(/\/maps\/place\/([^\/@?]+)/);
+    if (m) out.name = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+    const c = u.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (c) { out.lat = c[1]; out.lng = c[2]; }
+    const q = u.match(/[?&]q=([^&]+)/);
+    if (q) {
+      const qv = decodeURIComponent(q[1].replace(/\+/g, " "));
+      const ql = qv.match(/^(-?\d+\.?\d*),(-?\d+\.?\d*)$/);
+      if (ql) { out.lat = out.lat ?? ql[1]; out.lng = out.lng ?? ql[2]; }
+      else if (!out.name) out.name = qv;
+    }
+  } catch (e) { /* 解析できない形式は無視 */ }
+  return out;
+}
+
+async function reverseGeocode(lat, lng) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=ja`);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const a = j.address || {};
+  const parts = (j.display_name || "").split(", ").filter((s) => s && s !== "日本" && !/^\d{3}-?\d{4}$/.test(s));
+  const pref = a.state || a.province || parts.find((s) => /[都道府県]$/.test(s)) || "";
+  const city = a.city || a.town || a.village || a.county || "";
+  // 構造化フィールドから日本式住所を組み立て（包含される重複要素は除く）
+  let addrParts = [pref, city, a.suburb || a.quarter || "", a.neighbourhood || "", a.road || "", a.house_number || ""].filter(Boolean);
+  addrParts = addrParts.filter((p, i) => !addrParts.some((o, oi) => oi !== i && o !== p && o.includes(p)));
+  return {
+    address: (a.postcode ? "〒" + a.postcode + " " : "") + addrParts.join(""),
+    region: pref && city && city !== pref ? `${pref} ${city}` : (pref || city || ""),
+  };
+}
+
+async function autoFetchSpotInfo(itemId) {
+  const item = wishItems.find((x) => x.id === itemId);
+  if (!item || !item.url) return;
+  toast("📍 スポット情報を取得中...");
+  try {
+    let parsed = parseMapsUrl(item.url);
+    let mapImageUrl = null;
+    // Microlinkで短縮リンクの展開と地図サムネイル取得
+    try {
+      const r = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(item.url));
+      if (r.ok) {
+        const j = await r.json();
+        if (j.status === "success") {
+          mapImageUrl = j.data?.image?.url || null;
+          const p2 = parseMapsUrl(j.data?.url || "");
+          parsed = { name: parsed.name || p2.name, lat: parsed.lat ?? p2.lat, lng: parsed.lng ?? p2.lng };
+        }
+      }
+    } catch (e) { /* Microlink失敗時はURL解析結果だけで続行 */ }
+
     const cur = wishItems.find((x) => x.id === itemId);
-    if (!cur || (cur.images && cur.images.length)) return;
-    const imgId = await saveNewImage(dataURL);
-    cur.images = [imgId];
-    await dbPut("wish", cur);
-    renderWish();
-    toast("📷 商品ページのスクショを登録しました");
+    if (!cur) return;
+    let changed = false;
+
+    if (parsed.name && (!cur.name || cur.name === PENDING_NAME)) {
+      cur.name = parsed.name;
+      changed = true;
+    }
+    if (parsed.lat != null && (!cur.address || !cur.category)) {
+      try {
+        const geo = await reverseGeocode(parsed.lat, parsed.lng);
+        if (geo) {
+          if (!cur.address && geo.address) { cur.address = geo.address; changed = true; }
+          if (!cur.category && geo.region) { cur.category = geo.region; changed = true; }
+        }
+      } catch (e) { /* 住所なしで続行 */ }
+    }
+    if (!(cur.images || []).length && mapImageUrl) {
+      const blob = await fetchViaWeserv(mapImageUrl);
+      if (blob) {
+        const imgId = await saveNewImage(await compressImage(blob));
+        cur.images = [imgId];
+        changed = true;
+      }
+    }
+    if (cur.name === PENDING_NAME) {
+      cur.name = "（名称を取得できませんでした）";
+      changed = true;
+    }
+    if (changed) {
+      await dbPut("wish", cur);
+      renderWish();
+      toast("📍 スポット情報を登録しました");
+    } else {
+      toast("⚠️ スポット情報を自動取得できませんでした（手動でも入力できます）");
+    }
   } catch (err) {
-    console.warn("スクショ自動取得に失敗:", err);
-    toast("⚠️ スクショを自動取得できませんでした（編集から手動で追加できます）");
+    console.warn("スポット情報の自動取得に失敗:", err);
+    toast("⚠️ スポット情報を自動取得できませんでした（手動でも入力できます）");
+  }
+}
+
+/* ---- 商品ページHTMLからの価格・ジャンル抽出 ---- */
+async function fetchPageHtml(url) {
+  const endpoints = [
+    "https://corsproxy.io/?url=" + encodeURIComponent(url),
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
+  ];
+  for (const ep of endpoints) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const r = await fetch(ep, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!r.ok) continue;
+      const t = await r.text();
+      if (t && t.length > 500) return t;
+    } catch (e) { /* 次のプロキシへ */ }
+  }
+  return null;
+}
+
+function extractProductInfo(html) {
+  const out = { price: null, genre: "" };
+  const setPrice = (v) => {
+    const n = Math.round(parseFloat(String(v).replace(/[,，]/g, "")));
+    if (out.price == null && n >= 10 && n < 100000000) out.price = n;
+  };
+  // 1) JSON-LD（schema.org Product / BreadcrumbList）
+  for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const nodes = [];
+      const collect = (x) => {
+        if (!x || typeof x !== "object") return;
+        if (Array.isArray(x)) return x.forEach(collect);
+        nodes.push(x);
+        if (x["@graph"]) collect(x["@graph"]);
+      };
+      collect(JSON.parse(m[1].trim()));
+      for (const n of nodes) {
+        const types = [].concat(n["@type"] || []);
+        if (types.includes("Product")) {
+          for (const o of [].concat(n.offers || [])) {
+            setPrice(o.price ?? o.lowPrice ?? (o.priceSpecification && o.priceSpecification.price));
+          }
+          if (!out.genre && typeof n.category === "string") {
+            out.genre = n.category.split(/[>\/｜|]/).pop().trim().slice(0, 20);
+          }
+        }
+        if (!out.genre && types.includes("BreadcrumbList") && Array.isArray(n.itemListElement)) {
+          const names = n.itemListElement.map((e) => e?.name || e?.item?.name).filter(Boolean).map(String);
+          const cand = names.reverse().find((s) => s.length >= 2 && s.length <= 20);
+          if (cand) out.genre = cand.trim();
+        }
+      }
+    } catch (e) { /* 壊れたJSON-LDは無視 */ }
+  }
+  // 2) metaタグの価格
+  if (out.price == null) {
+    const pm = html.match(/(?:og:price:amount|product:price:amount)["'][^>]*content=["']([\d.,]+)/i)
+      || html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)/i);
+    if (pm) setPrice(pm[1]);
+  }
+  // 3) Amazonなど: 価格ブロック付近の¥表記
+  if (out.price == null) {
+    const ci = html.search(/corePrice|priceToPay|apex_desktop/);
+    if (ci >= 0) {
+      const pm = html.slice(ci, ci + 20000).match(/[￥¥]\s*([\d,]{3,})/);
+      if (pm) setPrice(pm[1]);
+    }
+  }
+  // 4) 汎用: ページ内で2回以上出てくる¥金額の最頻値
+  if (out.price == null) {
+    const counts = {};
+    for (const m of html.matchAll(/[￥¥]\s*([\d,]{3,})/g)) counts[m[1]] = (counts[m[1]] || 0) + 1;
+    const best = Object.entries(counts).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1])[0];
+    if (best) setPrice(best[0]);
+  }
+  // 5) Amazonのパンくずからジャンル
+  if (!out.genre) {
+    const bi = html.indexOf("wayfinding-breadcrumbs");
+    if (bi >= 0) {
+      const seg = html.slice(bi, bi + 6000);
+      const names = [...seg.matchAll(/<a[^>]*>\s*([^<>{}]{2,20}?)\s*<\/a>/g)].map((x) => x[1].trim()).filter(Boolean);
+      if (names.length) out.genre = names[names.length - 1];
+    }
+  }
+  return out;
+}
+
+// もの・やりたいこと: URLから画像・価格・ジャンルをまとめて自動入力
+async function autoFetchProductInfo(itemId) {
+  const item = wishItems.find((x) => x.id === itemId);
+  if (!item || !item.url || isSpot(item)) return;
+  const needImage = !(item.images || []).length;
+  const needPrice = item.price == null;
+  const needGenre = !item.genre;
+  if (!needImage && !needPrice && !needGenre) return;
+  toast("🔎 商品情報を取得中...（少し時間がかかることがあります）");
+  try {
+    let info = { price: null, genre: "" };
+    if (needPrice || needGenre) {
+      const html = await fetchPageHtml(item.url);
+      if (html) info = extractProductInfo(html);
+    }
+    let blob = null;
+    if (needImage) {
+      blob = await fetchMetaImage(item.url);
+      if (!blob) blob = await fetchUrlScreenshot(item.url);
+    }
+    // 取得中のユーザー編集を上書きしないよう、最新の状態に反映
+    const cur = wishItems.find((x) => x.id === itemId);
+    if (!cur) return;
+    const got = [];
+    if (blob && !(cur.images || []).length) {
+      const imgId = await saveNewImage(await compressImage(blob));
+      cur.images = [imgId];
+      got.push("画像");
+    }
+    if (needPrice && cur.price == null && info.price != null) { cur.price = info.price; got.push("価格 " + yen(info.price)); }
+    if (needGenre && !cur.genre && info.genre) { cur.genre = info.genre; got.push(`ジャンル「${info.genre}」`); }
+    if (got.length) {
+      await dbPut("wish", cur);
+      renderWish();
+      toast("🔎 " + got.join("・") + " を自動入力しました");
+    } else {
+      toast("⚠️ 商品情報を自動取得できませんでした（手動で入力できます）");
+    }
+  } catch (err) {
+    console.warn("商品情報の自動取得に失敗:", err);
+    toast("⚠️ 商品情報を自動取得できませんでした（手動で入力できます）");
   }
 }
 
@@ -726,21 +993,23 @@ function renderBought() {
         <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
         <div class="badges">
           ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
+          ${isSpot(item) ? `<span class="badge spot">📍 スポット</span>` : ""}
           ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
           ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
-          <span class="badge">${isKoto(item) ? "実施" : "購入"}: ${item.purchasedAt ? fmtDate(item.purchasedAt) : "不明"}</span>
+          <span class="badge">${isSpot(item) ? "訪問" : isKoto(item) ? "実施" : "購入"}: ${item.purchasedAt ? fmtDate(item.purchasedAt) : "不明"}</span>
           ${item.kakeiboSyncedAt ? `<span class="badge best">💰 家計簿済</span>` : ""}
         </div>
+        ${item.address ? `<div class="c-address">📍 ${esc(item.address)}</div>` : ""}
         <div class="cospa-box ${cospa == null ? "no-usage" : ""}">
           ${cospa != null
-            ? `<div class="cospa-main">1回あたり ${yen(Math.round(cospa))}</div><div class="cospa-sub">使用 ${uses} 回（最終: ${fmtDate(item.usages[item.usages.length - 1])}）</div>`
+            ? `<div class="cospa-main">1回あたり ${yen(Math.round(cospa))}</div><div class="cospa-sub">${isSpot(item) ? "訪問" : "使用"} ${uses} 回（最終: ${fmtDate(item.usages[item.usages.length - 1])}）</div>`
             : uses > 0
-              ? `<div>使用 ${uses} 回（価格未設定のためコスパ計算不可）</div>`
-              : `<div>まだ使用記録がありません</div>`}
+              ? `<div>${isSpot(item) ? "訪問" : "使用"} ${uses} 回${item.price == null ? "" : ""}（最終: ${fmtDate(item.usages[item.usages.length - 1])}）</div>`
+              : `<div>まだ${isSpot(item) ? "訪問" : "使用"}記録がありません</div>`}
         </div>
-        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く</a>` : ""}
+        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
         <div class="card-actions">
-          <button class="buy-btn u-log">📅 使用記録</button>
+          <button class="buy-btn u-log">📅 ${isSpot(item) ? "訪問記録" : "使用記録"}</button>
           <button class="edit-btn k-sync" title="家計簿「遊び代管理」に追加">💰</button>
           <button class="edit-btn">✏️ 編集</button>
           <button class="edit-btn u-back" title="ほしいものリストに戻す">↩</button>
@@ -787,7 +1056,9 @@ let usageItem = null;
 
 function openUsageDialog(item) {
   usageItem = item;
-  $("#usageDialogTitle").textContent = `📅 使用記録: ${item.name}`;
+  const label = isSpot(item) ? "訪問記録" : "使用記録";
+  $("#usageDialogTitle").textContent = `📅 ${label}: ${item.name}`;
+  $("#useTodayBtn").textContent = isSpot(item) ? "✅ 今日行った" : "✅ 今日使った";
   $("#usageDate").value = todayISO();
   renderUsage();
   $("#usageDialog").showModal();
@@ -797,10 +1068,11 @@ function renderUsage() {
   const item = usageItem;
   const uses = (item.usages || []).slice().sort();
   const cospa = cospaOf(item);
+  const w = isSpot(item) ? "訪問" : "使用";
   $("#usageStats").innerHTML = `
-    使用回数: <span class="big">${uses.length} 回</span>
+    ${w}回数: <span class="big">${uses.length} 回</span>
     ${cospa != null ? ` ／ コスパ: <span class="big">1回あたり ${yen(Math.round(cospa))}</span>` : ""}
-    ${item.price != null ? `<div class="hint">価格 ${yen(item.price)} ÷ 使用 ${uses.length} 回</div>` : `<div class="hint">価格を設定するとコスパが計算されます</div>`}`;
+    ${item.price != null ? `<div class="hint">価格 ${yen(item.price)} ÷ ${w} ${uses.length} 回</div>` : isSpot(item) ? "" : `<div class="hint">価格を設定するとコスパが計算されます</div>`}`;
   const ul = $("#usageList");
   ul.innerHTML = "";
   uses.slice().reverse().forEach((d) => {

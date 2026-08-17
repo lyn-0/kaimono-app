@@ -534,6 +534,8 @@ button { font-family: inherit; }
 }
 .badge.genre { background: #e8faf1; color: #0e9767; }
 .badge.koto { background: #fdf0f7; color: #c0398f; }
+.badge.spot { background: #e5f6fb; color: #0b7285; }
+.c-address { color: var(--sub); font-size: .78rem; line-height: 1.5; }
 .badge.best { background: #fef3c7; color: #b45309; }
 .item-card .c-rating { color: #f59e0b; font-size: .88rem; letter-spacing: 3px; }
 .item-card .c-memo { color: var(--sub); font-size: .8rem; white-space: pre-wrap; line-height: 1.6; }
@@ -652,7 +654,7 @@ dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spaci
 .kind-switch {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   background: #eceef6;
   border-radius: 999px;
   padding: 4px;
@@ -663,7 +665,7 @@ dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spaci
   position: absolute;
   top: 4px;
   left: 4px;
-  width: calc(50% - 4px);
+  width: calc((100% - 8px) / 3);
   height: calc(100% - 8px);
   background: var(--grad);
   border-radius: 999px;
@@ -671,6 +673,7 @@ dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spaci
   transition: transform .28s cubic-bezier(.22, 1, .36, 1);
 }
 .kind-switch.koto .kind-thumb { transform: translateX(100%); }
+.kind-switch.spot .kind-thumb { transform: translateX(200%); }
 .kind-switch button {
   position: relative;
   z-index: 1;

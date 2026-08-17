@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=7">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -63,12 +63,14 @@
         <option value="all">種類: すべて</option>
         <option value="mono">🛒 ほしいもの</option>
         <option value="koto">✨ やりたいこと</option>
+        <option value="spot">📍 スポット</option>
       </select>
       <select id="wishSort">
         <option value="manual">並び順: 手動（ドラッグで入替）</option>
         <option value="priceAsc">価格が安い順</option>
         <option value="priceDesc">価格が高い順</option>
         <option value="newest">追加が新しい順</option>
+        <option value="region">地域・カテゴリ順</option>
       </select>
       <button id="compareBtn" class="accent-btn">⚖️ ジャンル比較</button>
       <button id="recommendBtn" class="accent-btn">🏆 カテゴリのおすすめ</button>
@@ -102,13 +104,15 @@
       <span class="kind-thumb" aria-hidden="true"></span>
       <button type="button" data-kind="mono" class="active">🛒 ほしいもの</button>
       <button type="button" data-kind="koto">✨ やりたいこと</button>
+      <button type="button" data-kind="spot">📍 スポット</button>
     </div>
     <div class="form-grid">
       <label><span id="fNameLabel">商品名 *</span><input type="text" id="fName" required placeholder="例: ヘアアイロン SL-010"></label>
       <label>価格（円）<input type="number" id="fPrice" min="0" step="1" placeholder="例: 12800"></label>
-      <label>カテゴリ<input type="text" id="fCategory" list="categoryList" placeholder="例: 美容家電"><datalist id="categoryList"></datalist></label>
+      <label><span id="fCategoryLabel">カテゴリ</span><input type="text" id="fCategory" list="categoryList" placeholder="例: 美容家電"><datalist id="categoryList"></datalist></label>
       <label>ジャンル（比較用）<input type="text" id="fGenre" list="genreList" placeholder="例: ヘアアイロン"><datalist id="genreList"></datalist></label>
       <label class="full"><span id="fUrlLabel">商品ページURL</span><input type="url" id="fUrl" placeholder="https://..."></label>
+      <label class="full" id="fAddressRow" hidden>住所<input type="text" id="fAddress" placeholder="GoogleマップURLから自動取得されます（手入力も可）"></label>
       <label class="full">ほしい度
         <div id="fRating" class="rating-input" aria-label="ほしい度">
           <button type="button" data-v="1">★</button><button type="button" data-v="2">★</button><button type="button" data-v="3">★</button><button type="button" data-v="4">★</button><button type="button" data-v="5">★</button>
@@ -196,6 +200,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
