@@ -758,13 +758,15 @@ async function autoFetchSpotInfo(itemId) {
   try {
     let parsed = parseMapsUrl(item.url);
     let mapImageUrl = null;
-    // Microlinkで短縮リンクの展開と地図サムネイル取得
+    let mlTitle = "";
+    // Microlinkで短縮リンクの展開・タイトル(店名·住所)・サムネイル取得
     try {
       const r = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(item.url));
       if (r.ok) {
         const j = await r.json();
         if (j.status === "success") {
           mapImageUrl = j.data?.image?.url || null;
+          mlTitle = (j.data?.title || "").trim();
           const p2 = parseMapsUrl(j.data?.url || "");
           parsed = { name: parsed.name || p2.name, lat: parsed.lat ?? p2.lat, lng: parsed.lng ?? p2.lng };
         }
@@ -787,6 +789,33 @@ async function autoFetchSpotInfo(itemId) {
           if (!cur.category && geo.region) { cur.category = geo.region; changed = true; }
         }
       } catch (e) { /* 住所なしで続行 */ }
+    }
+    // 短縮リンク(maps.app.goo.gl)でURL展開できない場合:
+    // Microlinkのtitle「店名 · 住所(郵便番号入り)」から抽出する
+    if (mlTitle && !/^Google\s*(Maps|マップ)/i.test(mlTitle)) {
+      const [namePart, ...rest] = mlTitle.split(/\s*·\s*/);
+      if ((!cur.name || cur.name === PENDING_NAME) && namePart && !/^Google/i.test(namePart)) {
+        cur.name = namePart.trim();
+        changed = true;
+      }
+      const addrText = rest.join(" ").replace(/,?\s*Japan$/i, "").trim();
+      const zip = addrText.match(/(\d{3})-?(\d{4})/);
+      if (zip && (!cur.address || !cur.category)) {
+        try {
+          // 郵便番号 → 日本語住所（zipcloud・無料）
+          const z = await (await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip[1]}${zip[2]}`)).json();
+          const r0 = z?.results?.[0];
+          if (r0) {
+            const chome = addrText.match(/(\d+)\s*Chome[-\s]?([\d-]+)/i);
+            if (!cur.address) {
+              cur.address = `〒${zip[1]}-${zip[2]} ${r0.address1}${r0.address2}${r0.address3}${chome ? chome[1] + "丁目" + chome[2] : ""}`;
+              changed = true;
+            }
+            if (!cur.category) { cur.category = `${r0.address1} ${r0.address2}`; changed = true; }
+          }
+        } catch (e) { /* 郵便番号変換なしで続行 */ }
+      }
+      if (!cur.address && addrText) { cur.address = addrText; changed = true; }
     }
     if (!(cur.images || []).length && mapImageUrl) {
       const blob = await fetchViaWeserv(mapImageUrl);
