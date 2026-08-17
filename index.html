@@ -132,7 +132,7 @@
       <label>価格（円）<input type="number" id="fPrice" min="0" step="1" placeholder="例: 12800"></label>
       <label><span id="fCategoryLabel">カテゴリ</span><input type="text" id="fCategory" list="categoryList" placeholder="例: 美容家電"><datalist id="categoryList"></datalist></label>
       <label>ジャンル（比較用）<input type="text" id="fGenre" list="genreList" placeholder="例: ヘアアイロン"><datalist id="genreList"></datalist></label>
-      <label class="full"><span id="fUrlLabel">商品ページURL</span><input type="url" id="fUrl" placeholder="https://..."></label>
+      <label class="full"><span id="fUrlLabel">商品ページURL</span><input type="text" id="fUrl" inputmode="url" placeholder="https://..."></label>
       <label class="full" id="fAddressRow" hidden>住所<input type="text" id="fAddress" placeholder="GoogleマップURLから自動取得されます（手入力も可）"></label>
       <label class="full">ほしい度
         <div id="fRating" class="rating-input" aria-label="ほしい度">
@@ -221,6 +221,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

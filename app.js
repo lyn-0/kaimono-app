@@ -485,7 +485,7 @@ function applyKindToDialog() {
   $("#fPrice").placeholder = spot ? "予算があれば（例: 3000）" : koto ? "例: 98000" : "例: 12800";
   $("#fCategory").placeholder = spot ? "例: 東京都 港区" : koto ? "例: 美容医療" : "例: 美容家電";
   $("#fGenre").placeholder = spot ? "例: カフェ（比較用・任意）" : koto ? "例: 医療脱毛（クリニック比較用）" : "例: ヘアアイロン";
-  $("#fUrl").placeholder = spot ? "https://maps.app.goo.gl/... など" : koto ? "クリニック・予約ページなどのURL" : "https://...";
+  $("#fUrl").placeholder = spot ? "マップの「共有」でコピーした文章ごと貼り付けOK" : koto ? "クリニック・予約ページなどのURL" : "https://...";
   $("#fName").required = !spot;
   $("#fAddressRow").hidden = !spot;
 }
@@ -604,10 +604,28 @@ $("#itemCancelBtn").addEventListener("click", () => $("#itemDialog").close());
 
 $("#itemForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+
+  // URL欄: マップアプリの「共有」でコピーした文章ごと貼り付けに対応
+  // 例: 「URBANIC30 AOYAMA · 〒107-0062 東京都港区... https://maps.app.goo.gl/xxx」
+  const urlRaw = $("#fUrl").value.trim();
+  let url = urlRaw;
+  let shareName = "";
+  let shareAddr = "";
+  const um = urlRaw.match(/https?:\/\/[^\s"'<>]+/);
+  if (um) {
+    url = um[0];
+    const prefix = urlRaw.slice(0, um.index).trim();
+    if (dialogKind === "spot" && prefix) {
+      const parts = prefix.split(/\s*·\s*/);
+      shareName = (parts[0] || "").trim();
+      shareAddr = parts.slice(1).join(" ").trim();
+    }
+  }
+
   let name = $("#fName").value.trim();
   if (!name) {
-    // スポットはURLがあれば名前を自動取得するので未入力OK
-    if (dialogKind === "spot" && $("#fUrl").value.trim()) name = PENDING_NAME;
+    if (dialogKind === "spot" && shareName) name = shareName; // 共有テキストの店名を利用
+    else if (dialogKind === "spot" && url) name = PENDING_NAME; // URLから自動取得
     else { alert("名前を入力してください"); return; }
   }
   const priceRaw = $("#fPrice").value;
@@ -635,14 +653,14 @@ $("#itemForm").addEventListener("submit", async (e) => {
     kind: dialogKind,
     name,
     price: priceRaw === "" ? null : Number(priceRaw),
-    category: $("#fCategory").value.trim(),
+    category: $("#fCategory").value.trim() || (shareAddr ? regionFromAddress(shareAddr) : ""),
     genre: $("#fGenre").value.trim(),
-    url: $("#fUrl").value.trim(),
+    url,
     memo: $("#fMemo").value.trim(),
     rating: dialogRating,
     specs,
     images: imageIds,
-    address: $("#fAddress").value.trim(),
+    address: $("#fAddress").value.trim() || shareAddr,
   };
   await dbPut(editingStore, item);
 
@@ -740,6 +758,13 @@ function parseMapsUrl(u) {
     }
   } catch (e) { /* 解析できない形式は無視 */ }
   return out;
+}
+
+// 住所文字列から地域（都道府県+市区町村）を抽出
+function regionFromAddress(text) {
+  const m = String(text).match(/(北海道|東京都|京都府|大阪府|[一-龠々]{2,3}県)\s*([一-龠々ぁ-んァ-ヶA-Za-z0-9]{1,8}?[市区町村郡])?/);
+  if (!m) return "";
+  return m[2] ? `${m[1]} ${m[2]}` : m[1];
 }
 
 // Googleマップの業種（英語）→ 日本語ジャンル変換（上から順に部分一致）
