@@ -826,19 +826,30 @@ async function fetchPageHtml(url) {
       const r = await fetch(ep, { signal: ctrl.signal });
       clearTimeout(timer);
       if (!r.ok) continue;
-      const t = await r.text();
-      if (t && t.length > 500) return t;
+      const buf = await r.arrayBuffer();
+      let text = new TextDecoder("utf-8").decode(buf);
+      // EUC-JP / Shift_JIS のページ対応（楽天市場など）: metaのcharset宣言を見てデコードし直す
+      const cs = (text.slice(0, 3000).match(/charset=["']?([\w-]+)/i) || [])[1];
+      if (cs && !/^utf-?8$/i.test(cs)) {
+        try { text = new TextDecoder(cs.toLowerCase()).decode(buf); } catch (e) { /* 未対応charsetはUTF-8のまま */ }
+      }
+      if (text && text.length > 500) return text;
     } catch (e) { /* 次のプロキシへ */ }
   }
   return null;
 }
 
 function extractProductInfo(html) {
-  const out = { price: null, genre: "" };
+  const out = { price: null, genre: "", image: null };
   const setPrice = (v) => {
     const n = Math.round(parseFloat(String(v).replace(/[,，]/g, "")));
     if (out.price == null && n >= 10 && n < 100000000) out.price = n;
   };
+  // og:image（HTML本体から直接取得できればMicrolink不要）
+  const og = html.match(/property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)/i)
+    || html.match(/content=["']([^"']+)["'][^>]*property=["']og:image/i)
+    || html.match(/name=["']twitter:image["'][^>]*content=["']([^"']+)/i);
+  if (og && /^https?:\/\//.test(og[1])) out.image = og[1].replace(/&amp;/g, "&");
   // 1) JSON-LD（schema.org Product / BreadcrumbList）
   for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
@@ -868,10 +879,12 @@ function extractProductInfo(html) {
       }
     } catch (e) { /* 壊れたJSON-LDは無視 */ }
   }
-  // 2) metaタグの価格
+  // 2) metaタグ・itemprop の価格（属性の順序が逆のパターンにも対応: 楽天など）
   if (out.price == null) {
     const pm = html.match(/(?:og:price:amount|product:price:amount)["'][^>]*content=["']([\d.,]+)/i)
-      || html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)/i);
+      || html.match(/content=["']([\d.,]+)["'][^>]*(?:og:price:amount|product:price:amount)/i)
+      || html.match(/itemprop=["']price["'][^>]*content=["']([\d.,]+)/i)
+      || html.match(/content=["']([\d.,]+)["'][^>]*itemprop=["']price["']/i);
     if (pm) setPrice(pm[1]);
   }
   // 3) Amazonなど: 価格ブロック付近の¥表記
@@ -901,6 +914,22 @@ function extractProductInfo(html) {
   return out;
 }
 
+// 自動取得がボット対策でブロックされることが確認済みのサイト（早めに諦めて通知する）
+const FETCH_BLOCKED_SITES = /zozo\.jp|iherb\.com/i;
+
+// 画像URLがブラウザで表示可能か確認（バイト取得できないCDN向けのURL参照フォールバック用）
+function probeImageUrl(url) {
+  return new Promise((resolve) => {
+    if (!/^https:\/\//.test(url)) return resolve(false);
+    const im = new Image();
+    const done = (ok) => { clearTimeout(timer); resolve(ok); };
+    const timer = setTimeout(() => done(false), 8000);
+    im.onload = () => done(im.naturalWidth >= 100);
+    im.onerror = () => done(false);
+    im.src = url;
+  });
+}
+
 // もの・やりたいこと: URLから画像・価格・ジャンルをまとめて自動入力
 async function autoFetchProductInfo(itemId) {
   const item = wishItems.find((x) => x.id === itemId);
@@ -909,26 +938,47 @@ async function autoFetchProductInfo(itemId) {
   const needPrice = item.price == null;
   const needGenre = !item.genre;
   if (!needImage && !needPrice && !needGenre) return;
+  const blocked = FETCH_BLOCKED_SITES.test(item.url);
+  if (blocked) {
+    toast("⚠️ このサイト（ZOZO・iHerbなど）はボット対策のため自動取得に対応できません。画像・価格は手動で入力してください");
+    return;
+  }
   toast("🔎 商品情報を取得中...（少し時間がかかることがあります）");
   try {
-    let info = { price: null, genre: "" };
-    if (needPrice || needGenre) {
-      const html = await fetchPageHtml(item.url);
-      if (html) info = extractProductInfo(html);
-    }
+    let info = { price: null, genre: "", image: null };
+    const html = await fetchPageHtml(item.url);
+    if (html) info = extractProductInfo(html);
     let blob = null;
     if (needImage) {
-      blob = await fetchMetaImage(item.url);
+      // ① 取得済みHTMLのog:image → ② Microlink → ③ ページスクショ
+      if (info.image) {
+        // Yahoo!ショッピングのog:imageは小サムネイル(/i/n/)なので大サイズ(/i/l/)に変換
+        const upgraded = info.image.replace(/(item-shopping\.c\.yimg\.jp\/i)\/n\//, "$1/l/");
+        blob = await fetchViaWeserv(upgraded);
+        if (!blob && upgraded !== info.image) blob = await fetchViaWeserv(info.image);
+      }
+      if (!blob) blob = await fetchMetaImage(item.url);
       if (!blob) blob = await fetchUrlScreenshot(item.url);
     }
     // 取得中のユーザー編集を上書きしないよう、最新の状態に反映
     const cur = wishItems.find((x) => x.id === itemId);
     if (!cur) return;
     const got = [];
-    if (blob && !(cur.images || []).length) {
-      const imgId = await saveNewImage(await compressImage(blob));
-      cur.images = [imgId];
-      got.push("画像");
+    if (needImage && !(cur.images || []).length) {
+      if (blob) {
+        const imgId = await saveNewImage(await compressImage(blob));
+        cur.images = [imgId];
+        got.push("画像");
+      } else if (info.image) {
+        // バイト取得できないCDN（Yahoo!ショッピング等）: 表示可能ならURL参照で登録
+        const upgraded = info.image.replace(/(item-shopping\.c\.yimg\.jp\/i)\/n\//, "$1/l/");
+        const usable = (await probeImageUrl(upgraded)) ? upgraded : (await probeImageUrl(info.image)) ? info.image : null;
+        if (usable) {
+          const imgId = await saveNewImage(usable);
+          cur.images = [imgId];
+          got.push("画像");
+        }
+      }
     }
     if (needPrice && cur.price == null && info.price != null) { cur.price = info.price; got.push("価格 " + yen(info.price)); }
     if (needGenre && !cur.genre && info.genre) { cur.genre = info.genre; got.push(`ジャンル「${info.genre}」`); }
