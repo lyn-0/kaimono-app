@@ -674,6 +674,17 @@ dialog h2 { margin: 0 0 16px; font-size: 1.12rem; font-weight: 800; letter-spaci
 }
 .kind-switch.koto .kind-thumb { transform: translateX(100%); }
 .kind-switch.spot .kind-thumb { transform: translateX(200%); }
+
+/* 2択版（スポットタブの 行きたい/行った 切り替え） */
+.kind-switch.two {
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 200px;
+}
+.kind-switch.two .kind-thumb { width: calc((100% - 8px) / 2); }
+.kind-switch.two.went .kind-thumb { transform: translateX(100%); }
+.kind-switch.two button { padding: 8px 14px; font-size: .85rem; }
 .kind-switch button {
   position: relative;
   z-index: 1;
@@ -948,9 +959,9 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
   .google-btn { padding: 7px 12px; font-size: .8rem; }
   .avatar { width: 26px; height: 26px; }
 
-  /* タブ: 絵文字を隠して3等分に収める */
+  /* タブ: 絵文字を隠して4等分に収める */
   .tabs { order: 3; width: 100%; }
-  .tab-btn { flex: 1; min-width: 0; padding: 8px 2px; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; }
+  .tab-btn { flex: 1; min-width: 0; padding: 8px 0; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; }
   .tab-emoji { display: none; }
 
   main { padding: 16px 12px 76px; }
@@ -962,7 +973,8 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
   .quick-add .primary-btn { padding: 9px 16px; font-size: .88rem; }
 
   /* ほしいものツールバー: 追加ボタンは全幅、他は等分 */
-  .wish-toolbar #addWishBtn { width: 100%; }
+  .wish-toolbar #addWishBtn, .wish-toolbar #addSpotBtn { width: 100%; }
+  .kind-switch.two { flex: 1; }
   .wish-toolbar select { flex: 1; min-width: 0; }
   .wish-toolbar .accent-btn { flex: 1; white-space: nowrap; }
 

@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=9">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -31,6 +31,7 @@
     <button class="tab-btn active" data-tab="shopping"><span class="tab-emoji">🛒 </span>買い物リスト</button>
     <button class="tab-btn" data-tab="wish"><span class="tab-emoji">⭐ </span>ほしい・やりたい</button>
     <button class="tab-btn" data-tab="bought"><span class="tab-emoji">✅ </span>買った・やった</button>
+    <button class="tab-btn" data-tab="spot"><span class="tab-emoji">📍 </span>スポット</button>
   </nav>
   <div class="header-actions">
     <div id="authArea" class="auth-area"></div>
@@ -63,7 +64,6 @@
         <option value="all">種類: すべて</option>
         <option value="mono">🛒 ほしいもの</option>
         <option value="koto">✨ やりたいこと</option>
-        <option value="spot">📍 スポット</option>
       </select>
       <select id="wishSort">
         <option value="manual">並び順: 手動（ドラッグで入替）</option>
@@ -93,6 +93,25 @@
     </div>
     <div id="boughtGrid" class="card-grid"></div>
     <p id="boughtEmpty" class="empty-msg">まだ記録がありません。<br>「⭐ ほしい・やりたい」の「買った！／やった！」ボタンから移動できます。</p>
+  </section>
+
+  <!-- ===== スポット ===== -->
+  <section id="tab-spot" class="tab-panel">
+    <div class="wish-toolbar">
+      <button id="addSpotBtn" class="primary-btn">＋ スポットを追加</button>
+      <div class="kind-switch two" id="spotViewSwitch">
+        <span class="kind-thumb" aria-hidden="true"></span>
+        <button type="button" data-view="want" class="active">🚩 行きたい</button>
+        <button type="button" data-view="went">✅ 行った</button>
+      </div>
+      <select id="spotSort">
+        <option value="newest">新しい順</option>
+        <option value="region">地域順</option>
+      </select>
+    </div>
+    <div id="spotRegionChips" class="chips"></div>
+    <div id="spotGrid" class="card-grid"></div>
+    <p id="spotEmpty" class="empty-msg">行きたいスポットはまだありません。</p>
   </section>
 </main>
 
@@ -200,6 +219,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

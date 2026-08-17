@@ -141,6 +141,9 @@ let activeCategory = "all";
 let activeKind = "all"; // all | mono(ほしいもの) | koto(やりたいこと)
 let wishSortMode = "manual";
 let boughtSortMode = "newest";
+let spotView = "want";   // want=行きたい / went=行った
+let spotRegion = "all";
+let spotSortMode = "newest";
 
 const kindOf = (item) => item.kind || "mono"; // 既存データは「もの」扱い
 const isKoto = (item) => kindOf(item) === "koto";
@@ -280,7 +283,7 @@ async function loadWish() {
 }
 
 function sortedWish() {
-  let list = [...wishItems];
+  let list = wishItems.filter((x) => !isSpot(x)); // スポットは専用タブで表示
   if (activeKind !== "all") list = list.filter((x) => kindOf(x) === activeKind);
   if (activeCategory !== "all") list = list.filter((x) => (x.category || "未分類") === activeCategory);
   switch (wishSortMode) {
@@ -301,7 +304,8 @@ function renderWish() {
   const list = sortedWish();
   const draggable = wishSortMode === "manual";
   list.forEach((item) => grid.appendChild(buildWishCard(item, draggable)));
-  $("#wishEmpty").classList.toggle("hidden", wishItems.length > 0);
+  $("#wishEmpty").classList.toggle("hidden", wishItems.some((x) => !isSpot(x)));
+  renderSpots();
 }
 
 function thumbHtmlOf(item) {
@@ -322,7 +326,7 @@ function buildWishCard(item, draggable) {
     ${thumbHtmlOf(item)}
     <div class="card-body">
       <div class="c-name">${esc(item.name)}</div>
-      <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
+      ${isSpot(item) && item.price == null ? "" : `<div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>`}
       <div class="badges">
         ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
         ${isSpot(item) ? `<span class="badge spot">📍 スポット</span>` : ""}
@@ -344,7 +348,7 @@ function buildWishCard(item, draggable) {
   if (img) img.addEventListener("click", () => openViewer(item.images));
 
   card.querySelector(".buy-btn").addEventListener("click", async () => {
-    if (!confirm(`「${item.name}」を「買った・やった」リストに移動しますか？`)) return;
+    if (!confirm(`「${item.name}」を${isSpot(item) ? "「行ったスポット」" : "「買った・やった」リスト"}に移動しますか？`)) return;
     const bought = { ...item, purchasedAt: todayISO(), usages: [] };
     await dbPut("bought", bought);
     await dbDelete("wish", item.id);
@@ -376,7 +380,7 @@ function buildWishCard(item, draggable) {
 
 /* ---- カテゴリチップ ---- */
 function getCategories() {
-  const set = new Set(wishItems.map((x) => x.category || "未分類"));
+  const set = new Set(wishItems.filter((x) => !isSpot(x)).map((x) => x.category || "未分類"));
   return [...set].sort((a, b) => a.localeCompare(b, "ja"));
 }
 
@@ -403,7 +407,7 @@ function renderCategoryChips() {
 function renderCategoryBest() {
   const box = $("#categoryBest");
   if (activeCategory === "all") { box.hidden = true; return; }
-  const group = wishItems.filter((x) => (x.category || "未分類") === activeCategory);
+  const group = wishItems.filter((x) => !isSpot(x) && (x.category || "未分類") === activeCategory);
   if (group.length < 2) { box.hidden = true; return; }
   const { best, reasons } = pickBest(group);
   box.hidden = false;
@@ -482,14 +486,14 @@ document.querySelectorAll("#fKind button").forEach((b) => {
   });
 });
 
-function openItemDialog(store, item) {
+function openItemDialog(store, item, presetKind) {
   editingStore = store;
   editingItem = item || null;
   dialogImages = item
     ? (item.images || []).map((id) => ({ id, dataURL: imgSrc(id) })).filter((e) => e.dataURL)
     : [];
   dialogRating = item ? item.rating || 0 : 0;
-  dialogKind = item ? kindOf(item) : (activeKind !== "all" ? activeKind : "mono");
+  dialogKind = item ? kindOf(item) : (presetKind || (activeKind !== "all" ? activeKind : "mono"));
   applyKindToDialog();
   $("#fAddress").value = item ? item.address || "" : "";
 
@@ -976,10 +980,7 @@ function sortedBought() {
   return list;
 }
 
-function renderBought() {
-  const grid = $("#boughtGrid");
-  grid.innerHTML = "";
-  sortedBought().forEach((item) => {
+function buildBoughtCard(item) {
     const uses = (item.usages || []).length;
     const cospa = cospaOf(item);
     const card = document.createElement("div");
@@ -990,7 +991,7 @@ function renderBought() {
       ${thumbHtmlOf(item)}
       <div class="card-body">
         <div class="c-name">${esc(item.name)}</div>
-        <div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>
+        ${isSpot(item) && item.price == null ? "" : `<div class="c-price ${item.price == null ? "no-price" : ""}">${item.price != null ? yen(item.price) : "価格未設定"}</div>`}
         <div class="badges">
           ${isKoto(item) ? `<span class="badge koto">✨ やりたいこと</span>` : ""}
           ${isSpot(item) ? `<span class="badge spot">📍 スポット</span>` : ""}
@@ -1041,10 +1042,74 @@ function renderBought() {
       boughtItems = boughtItems.filter((x) => x.id !== item.id);
       renderBought();
     });
-    grid.appendChild(card);
-  });
-  $("#boughtEmpty").classList.toggle("hidden", boughtItems.length > 0);
+    return card;
 }
+
+function renderBought() {
+  const grid = $("#boughtGrid");
+  grid.innerHTML = "";
+  sortedBought().filter((x) => !isSpot(x)).forEach((item) => grid.appendChild(buildBoughtCard(item)));
+  $("#boughtEmpty").classList.toggle("hidden", boughtItems.some((x) => !isSpot(x)));
+  renderSpots();
+}
+
+/* ============================================================
+   スポットタブ（行きたい / 行った）
+   ============================================================ */
+function renderSpots() {
+  const grid = $("#spotGrid");
+  if (!grid) return;
+  $("#spotViewSwitch").classList.toggle("went", spotView === "went");
+  document.querySelectorAll("#spotViewSwitch button").forEach((b) => b.classList.toggle("active", b.dataset.view === spotView));
+
+  const src = (spotView === "want" ? wishItems : boughtItems).filter(isSpot);
+
+  // 地域チップ
+  const chipWrap = $("#spotRegionChips");
+  chipWrap.innerHTML = "";
+  const regions = [...new Set(src.map((x) => x.category || "未分類"))].sort((a, b) => a.localeCompare(b, "ja"));
+  if (spotRegion !== "all" && !regions.includes(spotRegion)) spotRegion = "all";
+  const mkChip = (label, value) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (spotRegion === value ? " active" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => { spotRegion = value; renderSpots(); });
+    return b;
+  };
+  chipWrap.appendChild(mkChip("すべて", "all"));
+  regions.forEach((r) => chipWrap.appendChild(mkChip(r, r)));
+
+  let list = src;
+  if (spotRegion !== "all") list = list.filter((x) => (x.category || "未分類") === spotRegion);
+  if (spotSortMode === "region") {
+    list = [...list].sort((a, b) => (a.category || "未分類").localeCompare(b.category || "未分類", "ja"));
+  } else {
+    list = [...list].sort((a, b) => spotView === "went"
+      ? (b.purchasedAt || "").localeCompare(a.purchasedAt || "")
+      : (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  grid.innerHTML = "";
+  list.forEach((item) => grid.appendChild(spotView === "want" ? buildWishCard(item, false) : buildBoughtCard(item)));
+
+  const empty = $("#spotEmpty");
+  empty.classList.toggle("hidden", src.length > 0);
+  empty.innerHTML = spotView === "want"
+    ? "行きたいスポットはまだありません。<br>「＋ スポットを追加」からGoogleマップのURLを貼って登録してください。"
+    : "行ったスポットはまだありません。<br>「🚩 行きたい」側の「🚩 行った！」ボタンから記録できます。";
+}
+
+$("#addSpotBtn").addEventListener("click", () => openItemDialog("wish", null, "spot"));
+document.querySelectorAll("#spotViewSwitch button").forEach((b) => {
+  b.addEventListener("click", () => {
+    spotView = b.dataset.view;
+    renderSpots();
+  });
+});
+$("#spotSort").addEventListener("change", (e) => {
+  spotSortMode = e.target.value;
+  renderSpots();
+});
 
 $("#boughtSort").addEventListener("change", (e) => {
   boughtSortMode = e.target.value;
@@ -1119,7 +1184,7 @@ $("#compareCloseBtn").addEventListener("click", () => $("#compareDialog").close(
 
 function getComparableGenres() {
   const count = {};
-  wishItems.forEach((x) => {
+  wishItems.filter((x) => !isSpot(x)).forEach((x) => {
     if (x.genre) count[x.genre] = (count[x.genre] || 0) + 1;
   });
   return Object.keys(count).filter((g) => count[g] >= 2).sort((a, b) => a.localeCompare(b, "ja"));
@@ -1128,7 +1193,7 @@ function getComparableGenres() {
 function renderCompare() {
   const genre = $("#compareGenre").value;
   const box = $("#compareResult");
-  const group = wishItems.filter((x) => x.genre === genre);
+  const group = wishItems.filter((x) => !isSpot(x) && x.genre === genre);
   if (!genre || group.length < 2) {
     box.innerHTML = `<p class="hint">同じジャンルを設定したほしいものが2件以上あると比較できます。<br>各アイテムの「編集」からジャンル（例: ヘアアイロン）を設定してください。</p>`;
     return;
@@ -1232,7 +1297,7 @@ $("#recommendCloseBtn").addEventListener("click", () => $("#recommendDialog").cl
 function renderRecommend() {
   const box = $("#recommendResult");
   const byCat = {};
-  wishItems.forEach((x) => {
+  wishItems.filter((x) => !isSpot(x)).forEach((x) => {
     const c = x.category || "未分類";
     (byCat[c] = byCat[c] || []).push(x);
   });
