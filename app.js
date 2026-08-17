@@ -461,8 +461,17 @@ let dialogImages = [];    // [{id?, dataURL}] 既存はid付き、新規はdataU
 let dialogRating = 0;
 let dialogKind = "mono";
 
+// カテゴリ・ジャンルの入力候補: スポットは「もの・やりたいこと」と分離して独立管理
+function refreshDialogDatalists() {
+  const all = [...wishItems, ...boughtItems];
+  const pool = dialogKind === "spot" ? all.filter(isSpot) : all.filter((x) => !isSpot(x));
+  $("#categoryList").innerHTML = [...new Set(pool.map((x) => x.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join("");
+  $("#genreList").innerHTML = [...new Set(pool.map((x) => x.genre).filter(Boolean))].map((g) => `<option value="${esc(g)}">`).join("");
+}
+
 // 種類に応じて入力欄のラベル・プレースホルダを切り替え
 function applyKindToDialog() {
+  refreshDialogDatalists();
   $("#fKind").classList.toggle("koto", dialogKind === "koto");
   $("#fKind").classList.toggle("spot", dialogKind === "spot");
   document.querySelectorAll("#fKind button").forEach((b) => b.classList.toggle("active", b.dataset.kind === dialogKind));
@@ -505,9 +514,7 @@ function openItemDialog(store, item, presetKind) {
   $("#fUrl").value = item ? item.url || "" : "";
   $("#fMemo").value = item ? item.memo || "" : "";
 
-  const allItems = [...wishItems, ...boughtItems];
-  $("#categoryList").innerHTML = [...new Set(allItems.map((x) => x.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join("");
-  $("#genreList").innerHTML = [...new Set(allItems.map((x) => x.genre).filter(Boolean))].map((g) => `<option value="${esc(g)}">`).join("");
+  refreshDialogDatalists();
 
   renderRating();
   renderSpecRows(item ? item.specs || [] : []);
@@ -734,6 +741,39 @@ function parseMapsUrl(u) {
   return out;
 }
 
+// Googleマップの業種（英語）→ 日本語ジャンル変換（上から順に部分一致）
+const SPOT_GENRE_MAP = [
+  ["women's clothing", "婦人服店"], ["men's clothing", "紳士服店"], ["clothing store", "洋服店"], ["boutique", "ブティック"],
+  ["coffee", "カフェ"], ["cafe", "カフェ"], ["ramen", "ラーメン店"], ["sushi", "寿司店"], ["izakaya", "居酒屋"],
+  ["italian", "イタリアン"], ["french", "フレンチ"], ["chinese", "中華料理店"], ["korean", "韓国料理店"],
+  ["bakery", "ベーカリー"], ["dessert", "スイーツ店"], ["ice cream", "アイスクリーム店"], ["restaurant", "レストラン"],
+  ["bar", "バー"], ["hotel", "ホテル"], ["hair", "美容室"], ["nail", "ネイルサロン"], ["beauty", "ビューティーサロン"],
+  ["spa", "スパ"], ["hot spring", "温泉"], ["museum", "美術館・博物館"], ["art gallery", "ギャラリー"],
+  ["shrine", "神社"], ["temple", "寺院"], ["park", "公園"], ["zoo", "動物園"], ["aquarium", "水族館"],
+  ["amusement", "遊園地"], ["tourist attraction", "観光名所"], ["shopping mall", "ショッピングモール"],
+  ["department store", "デパート"], ["supermarket", "スーパー"], ["convenience", "コンビニ"],
+  ["book", "書店"], ["furniture", "家具店"], ["electronics", "家電量販店"], ["pharmacy", "ドラッグストア"], ["drug", "ドラッグストア"],
+  ["gym", "ジム"], ["clinic", "クリニック"], ["dentist", "歯科"], ["florist", "花屋"], ["jewelry", "ジュエリー"],
+  ["shoe", "靴店"], ["bag", "バッグ店"], ["cosmetic", "コスメショップ"], ["grocery", "食料品店"],
+  ["store", "ショップ"], ["shop", "ショップ"],
+];
+function jaSpotGenre(en) {
+  const s = String(en).toLowerCase().replace(/[‘’]/g, "'"); // 特殊アポストロフィを正規化
+  for (const [k, v] of SPOT_GENRE_MAP) if (s.includes(k)) return v;
+  return String(en).trim(); // 辞書にない業種は原文のまま
+}
+
+// OpenStreetMapのPOI種別 → 日本語ジャンル（フルURL用）
+const OSM_TYPE_JA = {
+  cafe: "カフェ", restaurant: "レストラン", fast_food: "ファストフード", bar: "バー", pub: "パブ",
+  attraction: "観光名所", viewpoint: "展望スポット", museum: "美術館・博物館", gallery: "ギャラリー",
+  hotel: "ホテル", clothes: "洋服店", hairdresser: "美容室", beauty: "ビューティーサロン",
+  clinic: "クリニック", dentist: "歯科", park: "公園", garden: "庭園", zoo: "動物園",
+  aquarium: "水族館", theme_park: "遊園地", place_of_worship: "神社・寺院",
+  supermarket: "スーパー", convenience: "コンビニ", department_store: "デパート", mall: "ショッピングモール",
+  books: "書店", spa: "スパ", public_bath: "温泉・銭湯", tower: "タワー",
+};
+
 async function reverseGeocode(lat, lng) {
   const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&accept-language=ja`);
   if (!r.ok) return null;
@@ -748,6 +788,7 @@ async function reverseGeocode(lat, lng) {
   return {
     address: (a.postcode ? "〒" + a.postcode + " " : "") + addrParts.join(""),
     region: pref && city && city !== pref ? `${pref} ${city}` : (pref || city || ""),
+    poiGenre: OSM_TYPE_JA[j.type] || "",
   };
 }
 
@@ -759,7 +800,8 @@ async function autoFetchSpotInfo(itemId) {
     let parsed = parseMapsUrl(item.url);
     let mapImageUrl = null;
     let mlTitle = "";
-    // Microlinkで短縮リンクの展開・タイトル(店名·住所)・サムネイル取得
+    let mlDesc = "";
+    // Microlinkで短縮リンクの展開・タイトル(店名·住所)・業種・サムネイル取得
     try {
       const r = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(item.url));
       if (r.ok) {
@@ -767,6 +809,7 @@ async function autoFetchSpotInfo(itemId) {
         if (j.status === "success") {
           mapImageUrl = j.data?.image?.url || null;
           mlTitle = (j.data?.title || "").trim();
+          mlDesc = (j.data?.description || "").trim();
           const p2 = parseMapsUrl(j.data?.url || "");
           parsed = { name: parsed.name || p2.name, lat: parsed.lat ?? p2.lat, lng: parsed.lng ?? p2.lng };
         }
@@ -787,8 +830,14 @@ async function autoFetchSpotInfo(itemId) {
         if (geo) {
           if (!cur.address && geo.address) { cur.address = geo.address; changed = true; }
           if (!cur.category && geo.region) { cur.category = geo.region; changed = true; }
+          if (!cur.genre && geo.poiGenre) { cur.genre = geo.poiGenre; changed = true; }
         }
       } catch (e) { /* 住所なしで続行 */ }
+    }
+    // 業種(ジャンル): Googleマップの説明「★★★★☆ · Women's clothing store」から抽出して日本語化
+    if (!cur.genre && mlDesc && !/^Find local businesses/i.test(mlDesc)) {
+      const cat = mlDesc.split(/\s*·\s*/).map((s) => s.trim()).find((s) => s && !/^[★☆\d.\s()]+$/.test(s));
+      if (cat) { cur.genre = jaSpotGenre(cat); changed = true; }
     }
     // 短縮リンク(maps.app.goo.gl)でURL展開できない場合:
     // Microlinkのtitle「店名 · 住所(郵便番号入り)」から抽出する
