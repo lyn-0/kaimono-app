@@ -143,6 +143,7 @@ let wishSortMode = "manual";
 let boughtSortMode = "newest";
 let spotView = "want";   // want=行きたい / went=行った
 let spotRegion = "all";
+let spotGenre = "all";
 let spotSortMode = "newest";
 
 const kindOf = (item) => item.kind || "mono"; // 既存データは「もの」扱い
@@ -1204,13 +1205,34 @@ function renderSpots() {
     b.addEventListener("click", () => { spotRegion = value; renderSpots(); });
     return b;
   };
-  chipWrap.appendChild(mkChip("すべて", "all"));
+  chipWrap.appendChild(mkChip("📍 すべて", "all"));
   regions.forEach((r) => chipWrap.appendChild(mkChip(r, r)));
+
+  // ジャンルチップ
+  const genreWrap = $("#spotGenreChips");
+  genreWrap.innerHTML = "";
+  const genres = [...new Set(src.map((x) => x.genre || "未分類"))].sort((a, b) => a.localeCompare(b, "ja"));
+  if (spotGenre !== "all" && !genres.includes(spotGenre)) spotGenre = "all";
+  const mkGenreChip = (label, value) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (spotGenre === value ? " active" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => { spotGenre = value; renderSpots(); });
+    return b;
+  };
+  genreWrap.hidden = genres.length < 2;
+  if (!genreWrap.hidden) {
+    genreWrap.appendChild(mkGenreChip("🏷️ すべて", "all"));
+    genres.forEach((g) => genreWrap.appendChild(mkGenreChip(g, g)));
+  }
 
   let list = src;
   if (spotRegion !== "all") list = list.filter((x) => (x.category || "未分類") === spotRegion);
+  if (spotGenre !== "all") list = list.filter((x) => (x.genre || "未分類") === spotGenre);
   if (spotSortMode === "region") {
     list = [...list].sort((a, b) => (a.category || "未分類").localeCompare(b.category || "未分類", "ja"));
+  } else if (spotSortMode === "genre") {
+    list = [...list].sort((a, b) => (a.genre || "未分類").localeCompare(b.genre || "未分類", "ja"));
   } else {
     list = [...list].sort((a, b) => spotView === "went"
       ? (b.purchasedAt || "").localeCompare(a.purchasedAt || "")
