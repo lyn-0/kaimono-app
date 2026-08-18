@@ -352,6 +352,7 @@ function buildWishCard(item, draggable) {
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
       ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
       ${item.memo ? `<div class="c-memo">${esc(item.memo)}</div>` : ""}
+      ${item.createdAt ? `<div class="c-added">追加: ${fmtDate(item.createdAt)}</div>` : ""}
       <div class="card-actions">
         <button class="buy-btn">${isSpot(item) ? "🚩 行った！" : isKoto(item) ? "✨ やった！" : "🛒 買った！"}</button>
         <button class="edit-btn">✏️ 編集</button>
