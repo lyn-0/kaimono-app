@@ -63,6 +63,14 @@ body {
   font-weight: 800;
   letter-spacing: .02em;
 }
+.app-ver {
+  font-size: .58rem;
+  font-weight: 700;
+  color: var(--sub);
+  vertical-align: super;
+  margin-left: 4px;
+  opacity: .7;
+}
 .app-header .logo-text {
   background: linear-gradient(135deg, #1a1d29 30%, #6366f1);
   -webkit-background-clip: text;

@@ -2195,6 +2195,10 @@ function renderAuth() {
    起動
    ============================================================ */
 function boot() {
+  // 実行中バージョンをヘッダーに表示（script srcの?v=から自動取得。キャッシュ切り分け用）
+  const vm = (document.querySelector('script[src*="app.js"]')?.src || "").match(/v=(\d+)/);
+  if (vm) $(".logo-text").insertAdjacentHTML("afterend", `<span class="app-ver">v${vm[1]}</span>`);
+
   // 全ダイアログの右上に ✕ 閉じるボタンを挿入
   document.querySelectorAll("dialog:not(.image-viewer)").forEach((dlg) => {
     const x = document.createElement("button");
