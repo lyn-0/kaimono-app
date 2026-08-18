@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=18">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -74,6 +74,15 @@
       </select>
       <button id="compareBtn" class="accent-btn">⚖️ ジャンル比較</button>
       <button id="recommendBtn" class="accent-btn">🏆 カテゴリのおすすめ</button>
+    </div>
+    <div class="sale-block" id="saleBlock">
+      <button type="button" id="saleToggle" class="sale-toggle">
+        <span class="sale-arrow">▸</span> 🏷️ セール情報<span id="saleCount" class="sale-count"></span>
+      </button>
+      <div id="saleBody" class="sale-body" hidden>
+        <div id="saleList" class="sale-list"></div>
+        <button type="button" id="saleSettingBtn" class="ghost-btn">⚙️ セール情報を設定</button>
+      </div>
     </div>
     <div id="categoryChips" class="chips"></div>
     <div id="categoryBest" class="category-best" hidden></div>
@@ -207,6 +216,17 @@
   </div>
 </dialog>
 
+<!-- ===== セール情報設定ダイアログ ===== -->
+<dialog id="saleDialog" class="wide-dialog">
+  <h2>🏷️ セール情報の設定</h2>
+  <p class="hint">「ほしい・やりたい」に登録されているアイテムのサイトごとに、セール期間・内容・画像を登録できます。<br>登録すると、そのサイトの各アイテムのカードにセール情報が表示されます。</p>
+  <div id="saleRows"></div>
+  <div class="dialog-actions">
+    <button type="button" id="saleCancelBtn" class="ghost-btn">閉じる</button>
+    <button type="button" id="saleSaveBtn" class="primary-btn">保存</button>
+  </div>
+</dialog>
+
 <!-- ===== 家計簿（遊び代管理）同期ダイアログ ===== -->
 <dialog id="kakeiboDialog">
   <h2>💰 家計簿「遊び代管理」へ追加</h2>
@@ -223,6 +243,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

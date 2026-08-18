@@ -137,6 +137,7 @@ async function deleteItemImages(item) {
 let shoppingItems = [];
 let wishItems = [];
 let boughtItems = [];
+let salesItems = []; // サイト別セール情報 {id, site, start, end, detail, images}
 let activeCategory = "all";
 let activeKind = "all"; // all | mono(ほしいもの) | koto(やりたいこと)
 let wishSortMode = "manual";
@@ -153,6 +154,7 @@ const PENDING_NAME = "（スポット情報を取得中…）";
 
 async function loadAllData() {
   imagesById = new Map((await dbGetAll("images")).map((d) => [d.id, d.data]));
+  salesItems = await dbGetAll("sales");
   await loadShopping();
   await loadWish();
   await loadBought();
@@ -298,6 +300,7 @@ function sortedWish() {
 }
 
 function renderWish() {
+  renderSaleBlock();
   renderCategoryChips();
   renderCategoryBest();
   const grid = $("#wishGrid");
@@ -334,6 +337,11 @@ function buildWishCard(item, draggable) {
         ${item.category ? `<span class="badge">${esc(item.category)}</span>` : ""}
         ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
       </div>
+      ${(() => {
+        const sale = !isSpot(item) ? saleForItem(item) : null;
+        if (!sale || !saleIsActive(sale)) return "";
+        return `<div class="sale-banner">🏷️ ${esc(sale.detail || "セール中")}${salePeriodText(sale) ? `<span class="sale-period">📅 ${salePeriodText(sale)}</span>` : ""}</div>`;
+      })()}
       ${item.address ? `<div class="c-address">📍 ${esc(item.address)}</div>` : ""}
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
       ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
@@ -378,6 +386,169 @@ function buildWishCard(item, draggable) {
   }
   return card;
 }
+
+/* ============================================================
+   セール情報（サイト別）
+   ============================================================ */
+const SITE_NAMES = [
+  [/zozo\.jp$/, "ZOZOTOWN"],
+  [/iherb\.com$/, "iHerb"],
+  [/rakuten\.co\.jp$/, "楽天市場"],
+  [/shopping\.yahoo\.co\.jp$/, "Yahoo!ショッピング"],
+  [/(amazon\.co\.jp|amzn\.asia)$/, "Amazon"],
+];
+function siteOfUrl(url) {
+  if (!url) return null;
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    if (/google\.|goo\.gl$/.test(h)) return null; // マップ系は対象外
+    for (const [re, name] of SITE_NAMES) if (re.test(h)) return name;
+    return h;
+  } catch (e) { return null; }
+}
+const saleForItem = (item) => {
+  const site = siteOfUrl(item.url || "");
+  return site ? salesItems.find((s) => s.site === site) || null : null;
+};
+const saleIsActive = (s) => !s.end || s.end >= todayISO(); // 終了日を過ぎるまで表示（開始前は予告として表示）
+function salePeriodText(s) {
+  if (s.start && s.end) return `${fmtDate(s.start)}〜${fmtDate(s.end)}`;
+  if (s.end) return `〜${fmtDate(s.end)}まで`;
+  if (s.start) return `${fmtDate(s.start)}〜`;
+  return "";
+}
+
+function renderSaleBlock() {
+  const list = $("#saleList");
+  if (!list) return;
+  const active = salesItems.filter(saleIsActive);
+  $("#saleCount").textContent = active.length ? `（${active.length}件 開催中）` : "";
+  list.innerHTML = "";
+  if (!salesItems.length) {
+    list.innerHTML = `<div class="sale-empty">セール情報は未登録です。「⚙️ セール情報を設定」から登録できます。</div>`;
+    return;
+  }
+  [...salesItems].sort((a, b) => (a.end || "9999").localeCompare(b.end || "9999")).forEach((s) => {
+    const ended = !saleIsActive(s);
+    const div = document.createElement("div");
+    div.className = "sale-item" + (ended ? " ended" : "");
+    const img = s.images && s.images.length ? imgSrc(s.images[0]) : "";
+    div.innerHTML = `
+      ${img ? `<img src="${img}" alt="">` : ""}
+      <div>
+        <div><span class="si-site">${esc(s.site)}</span> <span class="si-detail">${esc(s.detail || "セール")}</span>${ended ? " <span class='si-period'>（終了）</span>" : ""}</div>
+        ${salePeriodText(s) ? `<div class="si-period">📅 ${salePeriodText(s)}</div>` : ""}
+      </div>`;
+    const im = div.querySelector("img");
+    if (im) im.addEventListener("click", () => openViewer(s.images));
+    list.appendChild(div);
+  });
+}
+
+/* ---- セール設定ダイアログ ---- */
+let saleDialogRows = [];
+
+function openSaleDialog() {
+  const sites = [...new Set(wishItems.filter((x) => !isSpot(x)).map((x) => siteOfUrl(x.url || "")).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ja"));
+  // 既存セールのサイトも表示（アイテムを消してもセールを編集/削除できるように）
+  salesItems.forEach((s) => { if (!sites.includes(s.site)) sites.push(s.site); });
+  if (!sites.length) {
+    alert("URL付きのアイテムがまだありません。\nほしいものに商品URLを付けて登録すると、そのサイトのセールを設定できます。");
+    return;
+  }
+  saleDialogRows = sites.map((site) => {
+    const ex = salesItems.find((s) => s.site === site) || null;
+    return { site, existing: ex, imageId: ex?.images?.[0] || null, removeImage: false, cleared: false };
+  });
+  renderSaleRows();
+  $("#saleDialog").showModal();
+}
+
+function renderSaleRows() {
+  const wrap = $("#saleRows");
+  wrap.innerHTML = "";
+  saleDialogRows.forEach((row, idx) => {
+    const ex = row.existing;
+    const count = wishItems.filter((x) => !isSpot(x) && siteOfUrl(x.url || "") === row.site).length;
+    const div = document.createElement("div");
+    div.className = "sale-row";
+    div.dataset.idx = idx;
+    const thumb = row.imageId && !row.removeImage ? imgSrc(row.imageId) : "";
+    div.innerHTML = `
+      <div class="sale-row-head"><b>${esc(row.site)}</b> <span class="hint">（対象アイテム ${count}件）</span></div>
+      <div class="sale-row-grid">
+        <label>開始日<input type="date" class="s-start" value="${esc(ex?.start || "")}"></label>
+        <label>終了日<input type="date" class="s-end" value="${esc(ex?.end || "")}"></label>
+        <label class="full">内容<input type="text" class="s-detail" value="${esc(ex?.detail || "")}" placeholder="例: 全品20%OFF・ブラックフライデー"></label>
+        <label class="full">画像（任意・セールバナーのスクショなど）<input type="file" class="s-img" accept="image/*"></label>
+      </div>
+      <div class="sale-row-foot">
+        ${thumb ? `<img class="sale-thumb" src="${thumb}"><button type="button" class="danger-btn s-imgdel">画像を削除</button>` : ""}
+        ${ex ? `<button type="button" class="danger-btn s-clear">このセールを削除</button>` : ""}
+      </div>`;
+    const imgDel = div.querySelector(".s-imgdel");
+    if (imgDel) imgDel.addEventListener("click", () => { row.removeImage = true; renderSaleRows(); });
+    const clearBtn = div.querySelector(".s-clear");
+    if (clearBtn) clearBtn.addEventListener("click", () => {
+      if (!confirm(`${row.site} のセール情報を削除しますか？`)) return;
+      row.cleared = true;
+      div.querySelector(".s-start").value = "";
+      div.querySelector(".s-end").value = "";
+      div.querySelector(".s-detail").value = "";
+      row.removeImage = true;
+      div.querySelector(".sale-row-foot").innerHTML = "";
+    });
+    wrap.appendChild(div);
+  });
+}
+
+$("#saleToggle").addEventListener("click", () => {
+  const body = $("#saleBody");
+  body.hidden = !body.hidden;
+  $("#saleBlock").classList.toggle("open", !body.hidden);
+  localStorage.setItem("saleBlockOpen", body.hidden ? "0" : "1");
+});
+$("#saleSettingBtn").addEventListener("click", openSaleDialog);
+$("#saleCancelBtn").addEventListener("click", () => $("#saleDialog").close());
+
+$("#saleSaveBtn").addEventListener("click", async () => {
+  try {
+    const rows = [...document.querySelectorAll("#saleRows .sale-row")];
+    for (const div of rows) {
+      const row = saleDialogRows[Number(div.dataset.idx)];
+      const start = div.querySelector(".s-start").value;
+      const end = div.querySelector(".s-end").value;
+      const detail = div.querySelector(".s-detail").value.trim();
+      let images = row.removeImage ? [] : (row.imageId ? [row.imageId] : []);
+      const file = div.querySelector(".s-img").files[0];
+      if (file && !row.cleared) {
+        const id = await saveNewImage(await compressImage(file));
+        images = [id];
+      }
+      // 差し替え/削除された古い画像を掃除
+      if (row.imageId && !images.includes(row.imageId)) {
+        await dbDelete("images", row.imageId);
+        imagesById.delete(row.imageId);
+      }
+      const hasData = !row.cleared && (start || end || detail || images.length);
+      if (hasData) {
+        const sale = { id: row.existing?.id || uuid(), site: row.site, start, end, detail, images, createdAt: row.existing?.createdAt || Date.now() };
+        await dbPut("sales", sale);
+        const i = salesItems.findIndex((s) => s.id === sale.id);
+        if (i >= 0) salesItems[i] = sale; else salesItems.push(sale);
+      } else if (row.existing) {
+        await dbDelete("sales", row.existing.id);
+        salesItems = salesItems.filter((s) => s.id !== row.existing.id);
+      }
+    }
+    $("#saleDialog").close();
+    renderWish();
+    toast("🏷️ セール情報を保存しました");
+  } catch (err) {
+    alert("セール情報の保存に失敗しました: " + err.message);
+  }
+});
 
 /* ---- カテゴリチップ ---- */
 function getCategories() {
@@ -1547,6 +1718,7 @@ async function buildExportData() {
     shopping: shoppingItems,
     wish: withImages(wishItems),
     bought: withImages(boughtItems),
+    sales: withImages(salesItems),
   };
 }
 
@@ -1554,6 +1726,7 @@ async function restoreFromData(data) {
   await dbClear("shopping");
   await dbClear("wish");
   await dbClear("bought");
+  await dbClear("sales");
   await dbClear("images");
   imagesById = new Map();
 
@@ -1571,6 +1744,7 @@ async function restoreFromData(data) {
   for (const it of data.shopping || []) await dbPut("shopping", it);
   await restoreItems(data.wish, "wish");
   await restoreItems(data.bought, "bought");
+  await restoreItems(data.sales, "sales");
   await loadAllData();
 }
 
@@ -1905,6 +2079,12 @@ function boot() {
     x.addEventListener("click", () => dlg.close());
     dlg.prepend(x);
   });
+
+  // セール情報ブロックの開閉状態を復元
+  if (localStorage.getItem("saleBlockOpen") === "1") {
+    $("#saleBody").hidden = false;
+    $("#saleBlock").classList.add("open");
+  }
 
   $("#gateLoginBtn").innerHTML = `${G_LOGO} Googleでログイン`;
   $("#gateLoginBtn").addEventListener("click", googleLogin);
