@@ -541,7 +541,12 @@ function renderSaleRows() {
           ? `<div class="full wd-row">${WD_LABELS.map((w, i) =>
               `<label class="wd-check"><input type="checkbox" class="s-wd" value="${i}" ${en.weekdays.includes(i) ? "checked" : ""}>${w}</label>`).join("")}</div>`
           : en.type === "days"
-            ? `<label class="full">日にち（カンマ区切り）<input type="text" class="s-days" inputmode="numeric" value="${esc(en.daysText)}" placeholder="例: 5,15,25（5のつく日）"></label>`
+            ? `<label class="full">日にち（カンマ区切り）<input type="text" class="s-days" value="${esc(en.daysText)}" placeholder="例: 5,15,25"></label>
+               <div class="full day-presets">
+                 <button type="button" class="ghost-btn s-preset" data-v="5,15,25">5のつく日</button>
+                 <button type="button" class="ghost-btn s-preset" data-v="10,20,30">0のつく日</button>
+                 <button type="button" class="ghost-btn s-preset" data-v="1">毎月1日</button>
+               </div>`
             : `<label>開始日<input type="date" class="s-start" value="${esc(en.start)}"></label>
                <label>終了日<input type="date" class="s-end" value="${esc(en.end)}"></label>`;
       entryDiv.innerHTML = `
@@ -569,6 +574,10 @@ function renderSaleRows() {
       if (ed) ed.addEventListener("change", (e) => { en.end = e.target.value; });
       const dy = entryDiv.querySelector(".s-days");
       if (dy) dy.addEventListener("input", (e) => { en.daysText = e.target.value; });
+      entryDiv.querySelectorAll(".s-preset").forEach((b) => b.addEventListener("click", () => {
+        en.daysText = b.dataset.v;
+        renderSaleRows();
+      }));
       entryDiv.querySelectorAll(".s-wd").forEach((cb) => cb.addEventListener("change", () => {
         en.weekdays = [...entryDiv.querySelectorAll(".s-wd:checked")].map((c) => Number(c.value));
       }));
