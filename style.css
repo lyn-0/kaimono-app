@@ -508,6 +508,39 @@ input[type="date"] {
 .sale-row-foot { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .sale-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
 
+/* サイト内の各セールエントリ */
+.sale-entry { border-top: 1px dashed var(--border); padding: 12px 0 4px; margin-top: 10px; }
+.sale-entry:first-of-type { border-top: none; margin-top: 0; padding-top: 2px; }
+.sale-entry-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sale-entry-top .s-type {
+  padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 999px;
+  font-family: inherit; font-size: .84rem; font-weight: 600; background: #fbfbfe; cursor: pointer; outline: none;
+}
+.sale-add-btn { margin-top: 10px; }
+.wd-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.wd-check {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1.5px solid var(--border); border-radius: 999px;
+  padding: 6px 10px; font-size: .82rem; font-weight: 600; cursor: pointer; background: #fbfbfe;
+}
+.wd-check:has(input:checked) { background: var(--grad); color: #fff; border-color: transparent; }
+.wd-check input { accent-color: #fff; margin: 0; }
+
+/* 予定・繰り返しの控えめバナーとステータスラベル */
+.sale-banner.sale-soon {
+  background: #f5f6fb;
+  border-color: #d8dcef;
+  color: #5a629e;
+}
+.sale-banner.sale-soon .sale-period { color: #7a82b8; }
+.sale-tag {
+  background: #5a629e; color: #fff; border-radius: 6px; padding: 1px 6px; font-size: .66rem;
+}
+.si-status { font-size: .68rem; font-weight: 700; border-radius: 6px; padding: 2px 7px; margin-left: 4px; }
+.si-status.active, .si-status.today { background: #ffe3e3; color: #c92a2a; }
+.si-status.upcoming { background: #e7ebff; color: #4c5bb3; }
+.si-status.ended { background: #ececf0; color: var(--sub); }
+
 /* ===== チップ ===== */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 16px; }
 .chip {

@@ -338,9 +338,15 @@ function buildWishCard(item, draggable) {
         ${item.genre ? `<span class="badge genre">${esc(item.genre)}</span>` : ""}
       </div>
       ${(() => {
-        const sale = !isSpot(item) ? saleForItem(item) : null;
-        if (!sale || !saleIsActive(sale)) return "";
-        return `<div class="sale-banner">🏷️ ${esc(sale.detail || "セール中")}${salePeriodText(sale) ? `<span class="sale-period">📅 ${salePeriodText(sale)}</span>` : ""}</div>`;
+        if (isSpot(item)) return "";
+        return salesForItem(item)
+          .filter((s) => saleStatus(s) !== "ended")
+          .map((s) => {
+            const st = saleStatus(s);
+            const soon = st === "upcoming" || st === "recurring";
+            const tag = st === "today" ? `<b>本日開催!</b>` : st === "upcoming" ? `<span class="sale-tag">予定</span>` : "";
+            return `<div class="sale-banner${soon ? " sale-soon" : ""}">🏷️ ${tag}${esc(s.detail || "セール")}${saleWhenText(s) ? `<span class="sale-period">📅 ${esc(saleWhenText(s))}</span>` : ""}</div>`;
+          }).join("");
       })()}
       ${item.address ? `<div class="c-address">📍 ${esc(item.address)}</div>` : ""}
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
@@ -406,47 +412,97 @@ function siteOfUrl(url) {
     return h;
   } catch (e) { return null; }
 }
-const saleForItem = (item) => {
+const salesForItem = (item) => {
   const site = siteOfUrl(item.url || "");
-  return site ? salesItems.find((s) => s.site === site) || null : null;
+  return site ? salesItems.filter((s) => s.site === site) : [];
 };
-const saleIsActive = (s) => !s.end || s.end >= todayISO(); // 終了日を過ぎるまで表示（開始前は予告として表示）
+
+// セールの状態: active(開催中) / today(繰り返しの当日) / upcoming(開催予定) / recurring(繰り返し・本日以外) / ended(終了)
+function saleStatus(s) {
+  const t = s.type || "period";
+  if (t === "weekly") {
+    return (s.weekdays || []).includes(new Date().getDay()) ? "today" : "recurring";
+  }
+  if (t === "days") {
+    const d = new Date().getDate();
+    return (s.days || []).some((x) => Number(x) === d) ? "today" : "recurring";
+  }
+  const today = todayISO();
+  if (s.end && s.end < today) return "ended";
+  if (s.start && s.start > today) return "upcoming";
+  return "active";
+}
+
+const WD_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 function salePeriodText(s) {
   if (s.start && s.end) return `${fmtDate(s.start)}〜${fmtDate(s.end)}`;
   if (s.end) return `〜${fmtDate(s.end)}まで`;
   if (s.start) return `${fmtDate(s.start)}〜`;
   return "";
 }
+function saleWhenText(s) {
+  const t = s.type || "period";
+  if (t === "weekly") return "毎週" + (s.weekdays || []).map((w) => WD_LABELS[w]).join("・") + "曜日";
+  if (t === "days") return "毎月" + (s.days || []).join("・") + "日";
+  return salePeriodText(s);
+}
 
 function renderSaleBlock() {
   const list = $("#saleList");
   if (!list) return;
-  const active = salesItems.filter(saleIsActive);
-  $("#saleCount").textContent = active.length ? `（${active.length}件 開催中）` : "";
+  const statuses = salesItems.map(saleStatus);
+  const nowCount = statuses.filter((st) => st === "active" || st === "today").length;
+  const soonCount = statuses.filter((st) => st === "upcoming" || st === "recurring").length;
+  const parts = [];
+  if (nowCount) parts.push(`${nowCount}件 開催中`);
+  if (soonCount) parts.push(`${soonCount}件 予定`);
+  $("#saleCount").textContent = parts.length ? `（${parts.join("・")}）` : "";
   list.innerHTML = "";
   if (!salesItems.length) {
     list.innerHTML = `<div class="sale-empty">セール情報は未登録です。「⚙️ セール情報を設定」から登録できます。</div>`;
     return;
   }
-  [...salesItems].sort((a, b) => (a.end || "9999").localeCompare(b.end || "9999")).forEach((s) => {
-    const ended = !saleIsActive(s);
-    const div = document.createElement("div");
-    div.className = "sale-item" + (ended ? " ended" : "");
-    const img = s.images && s.images.length ? imgSrc(s.images[0]) : "";
-    div.innerHTML = `
-      ${img ? `<img src="${img}" alt="">` : ""}
-      <div>
-        <div><span class="si-site">${esc(s.site)}</span> <span class="si-detail">${esc(s.detail || "セール")}</span>${ended ? " <span class='si-period'>（終了）</span>" : ""}</div>
-        ${salePeriodText(s) ? `<div class="si-period">📅 ${salePeriodText(s)}</div>` : ""}
-      </div>`;
-    const im = div.querySelector("img");
-    if (im) im.addEventListener("click", () => openViewer(s.images));
-    list.appendChild(div);
-  });
+  const order = { today: 0, active: 0, upcoming: 1, recurring: 1, ended: 2 };
+  const statusLabel = { today: "本日開催!", active: "開催中", upcoming: "開催予定", recurring: "", ended: "終了" };
+  [...salesItems]
+    .sort((a, b) => order[saleStatus(a)] - order[saleStatus(b)] || a.site.localeCompare(b.site, "ja"))
+    .forEach((s) => {
+      const st = saleStatus(s);
+      const div = document.createElement("div");
+      div.className = "sale-item" + (st === "ended" ? " ended" : "");
+      const img = s.images && s.images.length ? imgSrc(s.images[0]) : "";
+      const label = statusLabel[st];
+      div.innerHTML = `
+        ${img ? `<img src="${img}" alt="">` : ""}
+        <div>
+          <div><span class="si-site">${esc(s.site)}</span> <span class="si-detail">${esc(s.detail || "セール")}</span>
+            ${label ? `<span class="si-status ${st}">${label}</span>` : ""}</div>
+          ${saleWhenText(s) ? `<div class="si-period">📅 ${esc(saleWhenText(s))}</div>` : ""}
+        </div>`;
+      const im = div.querySelector("img");
+      if (im) im.addEventListener("click", () => openViewer(s.images));
+      list.appendChild(div);
+    });
 }
 
-/* ---- セール設定ダイアログ ---- */
-let saleDialogRows = [];
+/* ---- セール設定ダイアログ（サイトごとに複数セール登録可） ---- */
+let saleDialogState = [];
+
+function newSaleEntry(ex) {
+  return {
+    existing: ex || null,
+    type: ex?.type || "period",
+    start: ex?.start || "",
+    end: ex?.end || "",
+    detail: ex?.detail || "",
+    weekdays: [...(ex?.weekdays || [])],
+    daysText: (ex?.days || []).join(","),
+    imageId: ex?.images?.[0] || null,
+    newImageData: null,
+    removeImage: false,
+    deleted: false,
+  };
+}
 
 function openSaleDialog() {
   const sites = [...new Set(wishItems.filter((x) => !isSpot(x)).map((x) => siteOfUrl(x.url || "")).filter(Boolean))]
@@ -457,9 +513,10 @@ function openSaleDialog() {
     alert("URL付きのアイテムがまだありません。\nほしいものに商品URLを付けて登録すると、そのサイトのセールを設定できます。");
     return;
   }
-  saleDialogRows = sites.map((site) => {
-    const ex = salesItems.find((s) => s.site === site) || null;
-    return { site, existing: ex, imageId: ex?.images?.[0] || null, removeImage: false, cleared: false };
+  saleDialogState = sites.map((site) => {
+    const entries = salesItems.filter((s) => s.site === site).map(newSaleEntry);
+    if (!entries.length) entries.push(newSaleEntry(null));
+    return { site, entries };
   });
   renderSaleRows();
   $("#saleDialog").showModal();
@@ -468,38 +525,83 @@ function openSaleDialog() {
 function renderSaleRows() {
   const wrap = $("#saleRows");
   wrap.innerHTML = "";
-  saleDialogRows.forEach((row, idx) => {
-    const ex = row.existing;
-    const count = wishItems.filter((x) => !isSpot(x) && siteOfUrl(x.url || "") === row.site).length;
-    const div = document.createElement("div");
-    div.className = "sale-row";
-    div.dataset.idx = idx;
-    const thumb = row.imageId && !row.removeImage ? imgSrc(row.imageId) : "";
-    div.innerHTML = `
-      <div class="sale-row-head"><b>${esc(row.site)}</b> <span class="hint">（対象アイテム ${count}件）</span></div>
-      <div class="sale-row-grid">
-        <label>開始日<input type="date" class="s-start" value="${esc(ex?.start || "")}"></label>
-        <label>終了日<input type="date" class="s-end" value="${esc(ex?.end || "")}"></label>
-        <label class="full">内容<input type="text" class="s-detail" value="${esc(ex?.detail || "")}" placeholder="例: 全品20%OFF・ブラックフライデー"></label>
-        <label class="full">画像（任意・セールバナーのスクショなど）<input type="file" class="s-img" accept="image/*"></label>
-      </div>
-      <div class="sale-row-foot">
-        ${thumb ? `<img class="sale-thumb" src="${thumb}"><button type="button" class="danger-btn s-imgdel">画像を削除</button>` : ""}
-        ${ex ? `<button type="button" class="danger-btn s-clear">このセールを削除</button>` : ""}
-      </div>`;
-    const imgDel = div.querySelector(".s-imgdel");
-    if (imgDel) imgDel.addEventListener("click", () => { row.removeImage = true; renderSaleRows(); });
-    const clearBtn = div.querySelector(".s-clear");
-    if (clearBtn) clearBtn.addEventListener("click", () => {
-      if (!confirm(`${row.site} のセール情報を削除しますか？`)) return;
-      row.cleared = true;
-      div.querySelector(".s-start").value = "";
-      div.querySelector(".s-end").value = "";
-      div.querySelector(".s-detail").value = "";
-      row.removeImage = true;
-      div.querySelector(".sale-row-foot").innerHTML = "";
+  saleDialogState.forEach((siteRow, si) => {
+    const count = wishItems.filter((x) => !isSpot(x) && siteOfUrl(x.url || "") === siteRow.site).length;
+    const siteDiv = document.createElement("div");
+    siteDiv.className = "sale-row";
+    siteDiv.innerHTML = `<div class="sale-row-head"><b>${esc(siteRow.site)}</b> <span class="hint">（対象アイテム ${count}件）</span></div>`;
+
+    siteRow.entries.forEach((en, ei) => {
+      if (en.deleted) return;
+      const entryDiv = document.createElement("div");
+      entryDiv.className = "sale-entry";
+      const thumb = en.newImageData || (en.imageId && !en.removeImage ? imgSrc(en.imageId) : "");
+      const typeFields =
+        en.type === "weekly"
+          ? `<div class="full wd-row">${WD_LABELS.map((w, i) =>
+              `<label class="wd-check"><input type="checkbox" class="s-wd" value="${i}" ${en.weekdays.includes(i) ? "checked" : ""}>${w}</label>`).join("")}</div>`
+          : en.type === "days"
+            ? `<label class="full">日にち（カンマ区切り）<input type="text" class="s-days" inputmode="numeric" value="${esc(en.daysText)}" placeholder="例: 5,15,25（5のつく日）"></label>`
+            : `<label>開始日<input type="date" class="s-start" value="${esc(en.start)}"></label>
+               <label>終了日<input type="date" class="s-end" value="${esc(en.end)}"></label>`;
+      entryDiv.innerHTML = `
+        <div class="sale-entry-top">
+          <select class="s-type">
+            <option value="period" ${en.type === "period" ? "selected" : ""}>期間指定</option>
+            <option value="weekly" ${en.type === "weekly" ? "selected" : ""}>毎週（曜日）</option>
+            <option value="days" ${en.type === "days" ? "selected" : ""}>毎月（日にち）</option>
+          </select>
+          <button type="button" class="danger-btn s-del">削除</button>
+        </div>
+        <div class="sale-row-grid">
+          ${typeFields}
+          <label class="full">内容<input type="text" class="s-detail" value="${esc(en.detail)}" placeholder="例: 全品20%OFF・PayPayポイント増量"></label>
+          <label class="full">画像（任意）<input type="file" class="s-img" accept="image/*"></label>
+        </div>
+        ${thumb ? `<div class="sale-row-foot"><img class="sale-thumb" src="${thumb}"><button type="button" class="danger-btn s-imgdel">画像を削除</button></div>` : ""}`;
+
+      // 入力値はstateに随時保存（タイプ切替の再描画で消えないように）
+      entryDiv.querySelector(".s-type").addEventListener("change", (e) => { en.type = e.target.value; renderSaleRows(); });
+      entryDiv.querySelector(".s-detail").addEventListener("input", (e) => { en.detail = e.target.value; });
+      const st = entryDiv.querySelector(".s-start");
+      if (st) st.addEventListener("change", (e) => { en.start = e.target.value; });
+      const ed = entryDiv.querySelector(".s-end");
+      if (ed) ed.addEventListener("change", (e) => { en.end = e.target.value; });
+      const dy = entryDiv.querySelector(".s-days");
+      if (dy) dy.addEventListener("input", (e) => { en.daysText = e.target.value; });
+      entryDiv.querySelectorAll(".s-wd").forEach((cb) => cb.addEventListener("change", () => {
+        en.weekdays = [...entryDiv.querySelectorAll(".s-wd:checked")].map((c) => Number(c.value));
+      }));
+      entryDiv.querySelector(".s-img").addEventListener("change", async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+          en.newImageData = await compressImage(f);
+          en.removeImage = false;
+          renderSaleRows();
+        } catch (err) { alert("画像の取り込みに失敗しました: " + err.message); }
+      });
+      const imgDel = entryDiv.querySelector(".s-imgdel");
+      if (imgDel) imgDel.addEventListener("click", () => { en.newImageData = null; en.removeImage = true; renderSaleRows(); });
+      entryDiv.querySelector(".s-del").addEventListener("click", () => {
+        if (en.existing) {
+          if (!confirm(`${siteRow.site} のこのセールを削除しますか？`)) return;
+          en.deleted = true;
+        } else {
+          siteRow.entries.splice(ei, 1);
+        }
+        renderSaleRows();
+      });
+      siteDiv.appendChild(entryDiv);
     });
-    wrap.appendChild(div);
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "ghost-btn sale-add-btn";
+    addBtn.textContent = "＋ セールを追加";
+    addBtn.addEventListener("click", () => { siteRow.entries.push(newSaleEntry(null)); renderSaleRows(); });
+    siteDiv.appendChild(addBtn);
+    wrap.appendChild(siteDiv);
   });
 }
 
@@ -514,32 +616,47 @@ $("#saleCancelBtn").addEventListener("click", () => $("#saleDialog").close());
 
 $("#saleSaveBtn").addEventListener("click", async () => {
   try {
-    const rows = [...document.querySelectorAll("#saleRows .sale-row")];
-    for (const div of rows) {
-      const row = saleDialogRows[Number(div.dataset.idx)];
-      const start = div.querySelector(".s-start").value;
-      const end = div.querySelector(".s-end").value;
-      const detail = div.querySelector(".s-detail").value.trim();
-      let images = row.removeImage ? [] : (row.imageId ? [row.imageId] : []);
-      const file = div.querySelector(".s-img").files[0];
-      if (file && !row.cleared) {
-        const id = await saveNewImage(await compressImage(file));
-        images = [id];
-      }
-      // 差し替え/削除された古い画像を掃除
-      if (row.imageId && !images.includes(row.imageId)) {
-        await dbDelete("images", row.imageId);
-        imagesById.delete(row.imageId);
-      }
-      const hasData = !row.cleared && (start || end || detail || images.length);
-      if (hasData) {
-        const sale = { id: row.existing?.id || uuid(), site: row.site, start, end, detail, images, createdAt: row.existing?.createdAt || Date.now() };
-        await dbPut("sales", sale);
-        const i = salesItems.findIndex((s) => s.id === sale.id);
-        if (i >= 0) salesItems[i] = sale; else salesItems.push(sale);
-      } else if (row.existing) {
-        await dbDelete("sales", row.existing.id);
-        salesItems = salesItems.filter((s) => s.id !== row.existing.id);
+    for (const siteRow of saleDialogState) {
+      for (const en of siteRow.entries) {
+        // 削除指定
+        if (en.deleted) {
+          if (en.existing) {
+            for (const imgId of en.existing.images || []) { await dbDelete("images", imgId); imagesById.delete(imgId); }
+            await dbDelete("sales", en.existing.id);
+            salesItems = salesItems.filter((s) => s.id !== en.existing.id);
+          }
+          continue;
+        }
+        const days = en.daysText.split(/[,、\s]+/).map((x) => parseInt(x, 10)).filter((n) => n >= 1 && n <= 31);
+        const hasWhen = en.type === "weekly" ? en.weekdays.length : en.type === "days" ? days.length : (en.start || en.end);
+        let images = en.removeImage ? [] : (en.imageId ? [en.imageId] : []);
+        if (en.newImageData) images = [await saveNewImage(en.newImageData)];
+        // 差し替え/削除された古い画像を掃除
+        if (en.imageId && !images.includes(en.imageId)) {
+          await dbDelete("images", en.imageId);
+          imagesById.delete(en.imageId);
+        }
+        const hasData = en.detail.trim() || hasWhen || images.length;
+        if (hasData) {
+          const sale = {
+            id: en.existing?.id || uuid(),
+            site: siteRow.site,
+            type: en.type,
+            start: en.type === "period" ? en.start : "",
+            end: en.type === "period" ? en.end : "",
+            weekdays: en.type === "weekly" ? en.weekdays : [],
+            days: en.type === "days" ? days : [],
+            detail: en.detail.trim(),
+            images,
+            createdAt: en.existing?.createdAt || Date.now(),
+          };
+          await dbPut("sales", sale);
+          const i = salesItems.findIndex((s) => s.id === sale.id);
+          if (i >= 0) salesItems[i] = sale; else salesItems.push(sale);
+        } else if (en.existing) {
+          await dbDelete("sales", en.existing.id);
+          salesItems = salesItems.filter((s) => s.id !== en.existing.id);
+        }
       }
     }
     $("#saleDialog").close();
