@@ -8,7 +8,10 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#edeff5">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Emoji:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=27">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -17,7 +20,7 @@
 <!-- ===== ログインゲート（ログインするまでアプリを隠す） ===== -->
 <div id="loginGate" class="login-gate" hidden>
   <div class="gate-card">
-    <div class="gate-logo">🛍️</div>
+    <div class="gate-logo">🛍</div>
     <h2 class="gate-title">お買い物マネージャー</h2>
     <p class="gate-desc">買い物リスト・ほしいものリスト・コスパ管理をひとつで。<br>Googleアカウントでログインして始めましょう。</p>
     <button id="gateLoginBtn" class="google-btn gate-login-btn"></button>
@@ -26,7 +29,7 @@
 </div>
 
 <header class="app-header">
-  <h1><span class="logo-mark">🛍️</span> <span class="logo-text">お買い物マネージャー</span></h1>
+  <h1><span class="logo-mark">🛍</span> <span class="logo-text">お買い物マネージャー</span></h1>
   <nav class="tabs">
     <button class="tab-btn active" data-tab="shopping"><span class="tab-emoji">🛒 </span>買い物リスト</button>
     <button class="tab-btn" data-tab="wish"><span class="tab-emoji">⭐ </span>ほしい・やりたい</button>
@@ -72,16 +75,16 @@
         <option value="priceDesc">価格が高い順</option>
         <option value="region">地域・カテゴリ順</option>
       </select>
-      <button id="compareBtn" class="accent-btn">⚖️ ジャンル比較</button>
+      <button id="compareBtn" class="accent-btn">⚖ ジャンル比較</button>
       <button id="recommendBtn" class="accent-btn">🏆 カテゴリのおすすめ</button>
     </div>
     <div class="sale-block" id="saleBlock">
       <button type="button" id="saleToggle" class="sale-toggle">
-        <span class="sale-arrow">▸</span> 🏷️ セール情報<span id="saleCount" class="sale-count"></span>
+        <span class="sale-arrow">▸</span> 🏷 セール情報<span id="saleCount" class="sale-count"></span>
       </button>
       <div id="saleBody" class="sale-body" hidden>
         <div id="saleList" class="sale-list"></div>
-        <button type="button" id="saleSettingBtn" class="ghost-btn">⚙️ セール情報を設定</button>
+        <button type="button" id="saleSettingBtn" class="ghost-btn">⚙ セール情報を設定</button>
       </div>
     </div>
     <div id="categoryChips" class="chips"></div>
@@ -121,7 +124,7 @@
     </div>
     <div class="wish-toolbar spot-filters">
       <select id="spotRegionFilter"><option value="all">📍 地域: すべて</option></select>
-      <select id="spotGenreFilter"><option value="all">🏷️ ジャンル: すべて</option></select>
+      <select id="spotGenreFilter"><option value="all">🏷 ジャンル: すべて</option></select>
     </div>
     <div id="spotGrid" class="card-grid"></div>
     <p id="spotEmpty" class="empty-msg">行きたいスポットはまだありません。</p>
@@ -178,7 +181,7 @@
 
 <!-- ===== ジャンル比較ダイアログ ===== -->
 <dialog id="compareDialog" class="wide-dialog">
-  <h2>⚖️ 同ジャンル商品の比較</h2>
+  <h2>⚖ 同ジャンル商品の比較</h2>
   <div class="compare-controls">
     <label>ジャンルを選択:
       <select id="compareGenre"></select>
@@ -219,7 +222,7 @@
 
 <!-- ===== セール情報設定ダイアログ ===== -->
 <dialog id="saleDialog" class="wide-dialog">
-  <h2>🏷️ セール情報の設定</h2>
+  <h2>🏷 セール情報の設定</h2>
   <p class="hint">「ほしい・やりたい」に登録されているアイテムのサイトごとに、セール期間・内容・画像を登録できます。<br>登録すると、そのサイトの各アイテムのカードにセール情報が表示されます。</p>
   <div id="saleRows"></div>
   <div class="dialog-actions">
@@ -244,6 +247,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

@@ -353,7 +353,7 @@ function renderWish() {
 
 function thumbHtmlOf(item) {
   const src = item.images && item.images.length ? imgSrc(item.images[0]) : "";
-  if (!src) return `<div class="no-thumb">🖼️</div>`;
+  if (!src) return `<div class="no-thumb">🖼</div>`;
   const count = item.images.length > 1 ? `<span class="thumb-count">📷 ${item.images.length}</span>` : "";
   return `<img class="thumb" src="${src}" alt="">${count}`;
 }
@@ -384,17 +384,17 @@ function buildWishCard(item, draggable) {
             const st = saleStatus(s);
             const soon = st === "upcoming" || st === "recurring";
             const tag = st === "today" ? `<b>本日開催!</b>` : st === "upcoming" ? `<span class="sale-tag">予定</span>` : "";
-            return `<div class="sale-banner${soon ? " sale-soon" : ""}">🏷️ ${tag}${esc(s.detail || "セール")}${saleWhenText(s) ? `<span class="sale-period">📅 ${esc(saleWhenText(s))}</span>` : ""}</div>`;
+            return `<div class="sale-banner${soon ? " sale-soon" : ""}">🏷 ${tag}${esc(s.detail || "セール")}${saleWhenText(s) ? `<span class="sale-period">📅 ${esc(saleWhenText(s))}</span>` : ""}</div>`;
           }).join("");
       })()}
       ${item.address ? `<div class="c-address">📍 ${esc(item.address)}</div>` : ""}
       ${item.rating ? `<div class="c-rating">${"★".repeat(item.rating)}${"☆".repeat(5 - item.rating)}</div>` : ""}
-      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
+      ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
       ${item.memo ? `<div class="c-memo">${esc(item.memo)}</div>` : ""}
       ${item.createdAt ? `<div class="c-added">追加: ${fmtDate(item.createdAt)}</div>` : ""}
       <div class="card-actions">
         <button class="buy-btn">${isSpot(item) ? "🚩 行った！" : isKoto(item) ? "✨ やった！" : "🛒 買った！"}</button>
-        <button class="edit-btn">✏️ 編集</button>
+        <button class="edit-btn">✏ 編集</button>
         <button class="danger-btn c-del">🗑</button>
       </div>
     </div>`;
@@ -499,7 +499,7 @@ function renderSaleBlock() {
   $("#saleCount").textContent = parts.length ? `（${parts.join("・")}）` : "";
   list.innerHTML = "";
   if (!salesItems.length) {
-    list.innerHTML = `<div class="sale-empty">セール情報は未登録です。「⚙️ セール情報を設定」から登録できます。</div>`;
+    list.innerHTML = `<div class="sale-empty">セール情報は未登録です。「⚙ セール情報を設定」から登録できます。</div>`;
     return;
   }
   const order = { today: 0, active: 0, upcoming: 1, recurring: 1, ended: 2 };
@@ -710,7 +710,7 @@ $("#saleSaveBtn").addEventListener("click", async () => {
     }
     $("#saleDialog").close();
     renderWish();
-    toast("🏷️ セール情報を保存しました");
+    toast("🏷 セール情報を保存しました");
   } catch (err) {
     alert("セール情報の保存に失敗しました: " + err.message);
   }
@@ -1003,10 +1003,10 @@ async function maybeOcrAutofill() {
     if (priceEmpty && info.price != null && !$("#fPrice").value) { $("#fPrice").value = info.price; got.push("価格"); }
     status.textContent = got.length
       ? `🔎 スクショから ${got.join("・")} を自動入力しました（違っていたら修正してください）`
-      : "⚠️ スクショから商品名・価格を読み取れませんでした（手動で入力してください）";
+      : "⚠ スクショから商品名・価格を読み取れませんでした（手動で入力してください）";
   } catch (err) {
     console.warn("OCRに失敗:", err);
-    if ($("#itemDialog").open) status.textContent = "⚠️ スクショの読み取りに失敗しました（手動で入力してください）";
+    if ($("#itemDialog").open) status.textContent = "⚠ スクショの読み取りに失敗しました（手動で入力してください）";
   }
 }
 
@@ -1352,11 +1352,11 @@ async function autoFetchSpotInfo(itemId) {
       renderWish();
       toast("📍 スポット情報を登録しました");
     } else {
-      toast("⚠️ スポット情報を自動取得できませんでした（手動でも入力できます）");
+      toast("⚠ スポット情報を自動取得できませんでした（手動でも入力できます）");
     }
   } catch (err) {
     console.warn("スポット情報の自動取得に失敗:", err);
-    toast("⚠️ スポット情報を自動取得できませんでした（手動でも入力できます）");
+    toast("⚠ スポット情報を自動取得できませんでした（手動でも入力できます）");
   }
 }
 
@@ -1487,7 +1487,7 @@ async function autoFetchProductInfo(itemId) {
   if (!needImage && !needPrice && !needGenre) return;
   const blocked = FETCH_BLOCKED_SITES.test(item.url);
   if (blocked) {
-    toast("⚠️ このサイト（ZOZO・iHerbなど）はボット対策のため自動取得に対応できません。画像・価格は手動で入力してください");
+    toast("⚠ このサイト（ZOZO・iHerbなど）はボット対策のため自動取得に対応できません。画像・価格は手動で入力してください");
     return;
   }
   toast("🔎 商品情報を取得中...（少し時間がかかることがあります）");
@@ -1534,11 +1534,11 @@ async function autoFetchProductInfo(itemId) {
       renderWish();
       toast("🔎 " + got.join("・") + " を自動入力しました");
     } else {
-      toast("⚠️ 商品情報を自動取得できませんでした（手動で入力できます）");
+      toast("⚠ 商品情報を自動取得できませんでした（手動で入力できます）");
     }
   } catch (err) {
     console.warn("商品情報の自動取得に失敗:", err);
-    toast("⚠️ 商品情報を自動取得できませんでした（手動で入力できます）");
+    toast("⚠ 商品情報を自動取得できませんでした（手動で入力できます）");
   }
 }
 
@@ -1605,11 +1605,11 @@ function buildBoughtCard(item) {
               ? `<div>${isSpot(item) ? "訪問" : "使用"} ${uses} 回${item.price == null ? "" : ""}（最終: ${fmtDate(item.usages[item.usages.length - 1])}）</div>`
               : `<div>まだ${isSpot(item) ? "訪問" : "使用"}記録がありません</div>`}
         </div>
-        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺️ 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
+        ${item.url ? `<a class="c-link" href="${esc(item.url)}" target="_blank" rel="noopener">${isSpot(item) ? "🗺 地図を開く" : `🔗 ${isKoto(item) ? "ページ" : "商品ページ"}を開く`}</a>` : ""}
         <div class="card-actions">
           <button class="buy-btn u-log">📅 ${isSpot(item) ? "訪問記録" : "使用記録"}</button>
           <button class="edit-btn k-sync" title="家計簿「遊び代管理」に追加">💰</button>
-          <button class="edit-btn">✏️ 編集</button>
+          <button class="edit-btn">✏ 編集</button>
           <button class="edit-btn u-back" title="ほしいものリストに戻す">↩</button>
           <button class="danger-btn c-del">🗑</button>
         </div>
@@ -1671,7 +1671,7 @@ function renderSpots() {
   const genres = [...new Set(src.map((x) => x.genre || "未分類"))].sort((a, b) => a.localeCompare(b, "ja"));
   if (spotGenre !== "all" && !genres.includes(spotGenre)) spotGenre = "all";
   const genreSel = $("#spotGenreFilter");
-  genreSel.innerHTML = `<option value="all">🏷️ ジャンル: すべて</option>` + genres.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  genreSel.innerHTML = `<option value="all">🏷 ジャンル: すべて</option>` + genres.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join("");
   genreSel.value = spotGenre;
 
   let list = src;
@@ -2049,7 +2049,7 @@ const KAKEIBO_CONFIG = {
 const KAKEIBO_DEF_CATS = [
   { id: "c1", name: "食事", icon: "🍜" },
   { id: "c2", name: "エンタメ", icon: "🎮" },
-  { id: "c3", name: "ショッピング", icon: "🛍️" },
+  { id: "c3", name: "ショッピング", icon: "🛍" },
   { id: "c4", name: "カフェ", icon: "☕" },
   { id: "c5", name: "交通", icon: "🚃" },
   { id: "c6", name: "その他", icon: "💬" },
@@ -2158,7 +2158,7 @@ async function autoKakeiboSync(item) {
     toast(`💰 家計簿に自動追加しました（${cat.name}・${yen(item.price)}）`);
   } catch (err) {
     console.warn("家計簿への自動同期に失敗:", err);
-    toast("⚠️ 家計簿への自動同期に失敗しました。💰ボタンから手動で追加できます");
+    toast("⚠ 家計簿への自動同期に失敗しました。💰ボタンから手動で追加できます");
   }
 }
 
@@ -2196,7 +2196,7 @@ function renderKakeiboDialog() {
 
   const matched = matchKakeiboCategory(kakeiboCats, item);
   const syncedWarn = item.kakeiboSyncedAt
-    ? `<p class="hint" style="color:#b45309">⚠️ この商品は ${new Date(item.kakeiboSyncedAt).toLocaleString("ja-JP")} に同期済みです。もう一度追加すると家計簿に二重登録されます。</p>`
+    ? `<p class="hint" style="color:#b45309">⚠ この商品は ${new Date(item.kakeiboSyncedAt).toLocaleString("ja-JP")} に同期済みです。もう一度追加すると家計簿に二重登録されます。</p>`
     : "";
   body.innerHTML = `
     ${syncedWarn}
