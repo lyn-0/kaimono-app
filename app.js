@@ -191,11 +191,8 @@ function renderShopping() {
       <input type="checkbox" ${item.done ? "checked" : ""}>
       <span class="s-name">${esc(item.name)}</span>
       <button type="button" class="s-qty ${item.qty ? "" : "s-qty-empty"}" title="個数を変更">${item.qty ? esc(item.qty) : "＋個数"}</button>
-      <span class="s-updown">
-        <button type="button" class="s-move s-up" title="上へ">▲</button>
-        <button type="button" class="s-move s-down" title="下へ">▼</button>
-      </span>
       <button class="danger-btn s-del">削除</button>`;
+    attachLongPressDrag(li); // 長押しで並べ替え（ネイティブドラッグより先に登録）
     li.querySelector("input").addEventListener("change", async (e) => {
       item.done = e.target.checked;
       await dbPut("shopping", item);
@@ -227,21 +224,6 @@ function renderShopping() {
       input.addEventListener("blur", commit);
       input.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
     });
-    // ↑↓ボタンで並べ替え（スマホのタッチ操作用）
-    const move = async (delta) => {
-      const idx = shoppingItems.indexOf(item);
-      const j = idx + delta;
-      if (j < 0 || j >= shoppingItems.length) return;
-      shoppingItems.splice(idx, 1);
-      shoppingItems.splice(j, 0, item);
-      for (let i = 0; i < shoppingItems.length; i++) {
-        shoppingItems[i].order = i;
-        await dbPut("shopping", shoppingItems[i]);
-      }
-      renderShopping();
-    };
-    li.querySelector(".s-up").addEventListener("click", () => move(-1));
-    li.querySelector(".s-down").addEventListener("click", () => move(1));
     addDragEvents(li, ul, shoppingItems, async () => {
       for (let i = 0; i < shoppingItems.length; i++) {
         shoppingItems[i].order = i;
@@ -280,6 +262,80 @@ $("#clearDoneBtn").addEventListener("click", async () => {
   shoppingItems = shoppingItems.filter((x) => !x.done);
   renderShopping();
 });
+
+/* ---- 長押しドラッグ並べ替え（買い物リスト・スマホのタッチ対応） ----
+   約0.4秒の長押しでつかみ、指/マウスを上下に動かして並べ替える。
+   8px以上動いたら通常のスクロール意図とみなしてキャンセルする。 */
+let lpDrag = null;
+
+async function persistShoppingOrder() {
+  const ids = [...$("#shoppingList").children].map((c) => c.dataset.id);
+  shoppingItems.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  for (let i = 0; i < shoppingItems.length; i++) {
+    shoppingItems[i].order = i;
+    await dbPut("shopping", shoppingItems[i]);
+  }
+}
+
+function attachLongPressDrag(li) {
+  // 長押しドラッグ中はネイティブのHTML5ドラッグを抑止（capture段階で先取り）
+  li.addEventListener("dragstart", (e) => {
+    if (lpDrag && lpDrag.active) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  li.addEventListener("contextmenu", (e) => {
+    if (lpDrag && lpDrag.active) e.preventDefault();
+  });
+
+  li.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button, input, a")) return; // 操作系の要素は除外
+    if (lpDrag) return;
+    const state = { li, active: false, startX: e.clientX, startY: e.clientY };
+    lpDrag = state;
+
+    // 長押し中の画面スクロールを止める（発動後のみpreventDefault）
+    const touchBlocker = (ev) => { if (state.active) ev.preventDefault(); };
+    document.addEventListener("touchmove", touchBlocker, { passive: false });
+
+    state.timer = setTimeout(() => {
+      state.active = true;
+      li.classList.add("lifting");
+      if (navigator.vibrate) navigator.vibrate(20);
+    }, 400);
+
+    const onMove = (ev) => {
+      if (lpDrag !== state) return;
+      if (!state.active) {
+        // 発動前に動いた → スクロール意図なのでキャンセル
+        if (Math.hypot(ev.clientX - state.startX, ev.clientY - state.startY) > 8) cleanup(false);
+        return;
+      }
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const over = el && el.closest("#shoppingList li");
+      if (over && over !== li) {
+        const r = over.getBoundingClientRect();
+        if (ev.clientY < r.top + r.height / 2) over.before(li);
+        else over.after(li);
+      }
+    };
+    const onUp = () => {
+      const wasActive = state.active;
+      cleanup(wasActive);
+    };
+    function cleanup(save) {
+      clearTimeout(state.timer);
+      li.classList.remove("lifting");
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("touchmove", touchBlocker);
+      lpDrag = null;
+      if (save) persistShoppingOrder();
+    }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+  });
+}
 
 /* ---- 汎用ドラッグ＆ドロップ（リスト並べ替え） ---- */
 let dragEl = null;
