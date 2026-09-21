@@ -287,7 +287,7 @@ function attachLongPressDrag(li) {
   });
 
   li.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button, input, a")) return; // 操作系の要素は除外
+    if (!e.target.closest(".drag-handle")) return; // ⠿ハンドル長押しでのみ移動
     if (lpDrag) return;
     const state = { li, active: false, startX: e.clientX, startY: e.clientY };
     lpDrag = state;
@@ -300,7 +300,7 @@ function attachLongPressDrag(li) {
       state.active = true;
       li.classList.add("lifting");
       if (navigator.vibrate) navigator.vibrate(20);
-    }, 400);
+    }, 250);
 
     const onMove = (ev) => {
       if (lpDrag !== state) return;
