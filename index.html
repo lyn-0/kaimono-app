@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#6366f1">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -66,10 +66,10 @@
         <option value="koto">✨ やりたいこと</option>
       </select>
       <select id="wishSort">
-        <option value="manual">並び順: 手動（ドラッグで入替）</option>
+        <option value="newest" selected>追加が新しい順</option>
+        <option value="manual">手動（ドラッグで入替）</option>
         <option value="priceAsc">価格が安い順</option>
         <option value="priceDesc">価格が高い順</option>
-        <option value="newest">追加が新しい順</option>
         <option value="region">地域・カテゴリ順</option>
       </select>
       <button id="compareBtn" class="accent-btn">⚖️ ジャンル比較</button>
@@ -166,6 +166,7 @@
         <input type="file" id="fImages" accept="image/*" multiple>
       </div>
       <div id="imagePreview" class="image-preview"></div>
+      <div id="ocrStatus" class="hint ocr-status" hidden></div>
     </fieldset>
 
     <div class="dialog-actions">
@@ -243,6 +244,6 @@
   <button id="viewerCloseBtn" class="viewer-close">✕ 閉じる</button>
 </dialog>
 
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

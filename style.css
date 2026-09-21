@@ -410,8 +410,37 @@ button { font-family: inherit; }
   font-weight: 700;
   background: #f3efff;
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 4px 10px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
 }
+.shopping-list li .s-qty:hover { background: #e9e0ff; }
+.shopping-list li .s-qty-empty { background: transparent; border: 1px dashed #d5d9e8; color: var(--sub); font-weight: 600; }
+.s-qty-edit {
+  width: 76px;
+  padding: 5px 8px;
+  border: 1.5px solid var(--primary);
+  border-radius: 999px;
+  font-size: .8rem;
+  font-family: inherit;
+  outline: none;
+}
+.s-updown { display: flex; gap: 2px; }
+.s-move {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--sub);
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: .68rem;
+  line-height: 1;
+  transition: background .15s, color .15s;
+}
+.s-move:hover { background: #f0f2f8; color: var(--text); }
+.ocr-status { margin-top: 10px; line-height: 1.6; }
 
 /* ===== iOS Safari の date 入力対策 =====
    iOSは date input が固有幅を持ち width を無視してはみ出すため、
@@ -1112,6 +1141,10 @@ legend { font-size: .78rem; font-weight: 700; color: var(--sub); padding: 0 8px;
   .tab-emoji { display: none; }
 
   main { padding: 16px 12px 76px; }
+
+  /* 買い物リスト: タッチでは↑↓ボタンを使うのでドラッグハンドルは隠す */
+  .shopping-list .drag-handle { display: none; }
+  .shopping-list li { gap: 8px; padding: 10px 12px; }
 
   /* 買い物リストの入力行 */
   .quick-add { padding: 6px; gap: 6px; }

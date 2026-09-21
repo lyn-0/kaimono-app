@@ -140,7 +140,7 @@ let boughtItems = [];
 let salesItems = []; // サイト別セール情報 {id, site, start, end, detail, images}
 let activeCategory = "all";
 let activeKind = "all"; // all | mono(ほしいもの) | koto(やりたいこと)
-let wishSortMode = "manual";
+let wishSortMode = "newest"; // 既定は登録日時の降順
 let boughtSortMode = "newest";
 let spotView = "want";   // want=行きたい / went=行った
 let spotRegion = "all";
@@ -190,7 +190,11 @@ function renderShopping() {
       <span class="drag-handle" title="ドラッグで並べ替え">⠿</span>
       <input type="checkbox" ${item.done ? "checked" : ""}>
       <span class="s-name">${esc(item.name)}</span>
-      ${item.qty ? `<span class="s-qty">${esc(item.qty)}</span>` : ""}
+      <button type="button" class="s-qty ${item.qty ? "" : "s-qty-empty"}" title="個数を変更">${item.qty ? esc(item.qty) : "＋個数"}</button>
+      <span class="s-updown">
+        <button type="button" class="s-move s-up" title="上へ">▲</button>
+        <button type="button" class="s-move s-down" title="下へ">▼</button>
+      </span>
       <button class="danger-btn s-del">削除</button>`;
     li.querySelector("input").addEventListener("change", async (e) => {
       item.done = e.target.checked;
@@ -203,6 +207,41 @@ function renderShopping() {
       shoppingItems = shoppingItems.filter((x) => x.id !== item.id);
       renderShopping();
     });
+    // 個数のタップ編集（登録後の変更・追加）
+    li.querySelector(".s-qty").addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "s-qty-edit";
+      input.value = item.qty || "";
+      input.placeholder = "例: 2本";
+      li.querySelector(".s-qty").replaceWith(input);
+      input.focus();
+      let committed = false;
+      const commit = async () => {
+        if (committed) return; // Enter→blurの二重確定を防ぐ
+        committed = true;
+        item.qty = input.value.trim();
+        await dbPut("shopping", item);
+        renderShopping();
+      };
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+    });
+    // ↑↓ボタンで並べ替え（スマホのタッチ操作用）
+    const move = async (delta) => {
+      const idx = shoppingItems.indexOf(item);
+      const j = idx + delta;
+      if (j < 0 || j >= shoppingItems.length) return;
+      shoppingItems.splice(idx, 1);
+      shoppingItems.splice(j, 0, item);
+      for (let i = 0; i < shoppingItems.length; i++) {
+        shoppingItems[i].order = i;
+        await dbPut("shopping", shoppingItems[i]);
+      }
+      renderShopping();
+    };
+    li.querySelector(".s-up").addEventListener("click", () => move(-1));
+    li.querySelector(".s-down").addEventListener("click", () => move(1));
     addDragEvents(li, ul, shoppingItems, async () => {
       for (let i = 0; i < shoppingItems.length; i++) {
         shoppingItems[i].order = i;
@@ -818,6 +857,8 @@ function openItemDialog(store, item, presetKind) {
   renderRating();
   renderSpecRows(item ? item.specs || [] : []);
   renderDialogImages();
+  $("#ocrStatus").hidden = true;
+  $("#ocrStatus").textContent = "";
   $("#itemDialog").showModal();
 }
 
@@ -870,14 +911,103 @@ function renderDialogImages() {
 }
 
 async function addDialogImageFiles(files) {
+  let added = 0;
   for (const f of files) {
     try {
       dialogImages.push({ dataURL: await compressImage(f) });
+      added++;
     } catch (err) {
       alert("画像の取り込みに失敗しました: " + err.message);
     }
   }
   renderDialogImages();
+  // スクショから商品名・価格を自動読み取り（もの・やりたいことのみ）
+  if (added && dialogKind !== "spot") maybeOcrAutofill();
+}
+
+/* ---- スクショOCR（商品名・価格の自動入力） ----
+   Tesseract.js（ブラウザ内OCR）をCDNから初回利用時に読み込む。
+   初回は日本語の学習データ(十数MB)を取得するため時間がかかる。 */
+let ocrWorkerPromise = null;
+
+function getOcrWorker() {
+  if (!ocrWorkerPromise) {
+    ocrWorkerPromise = (async () => {
+      if (!window.Tesseract) {
+        await new Promise((res, rej) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+          s.onload = res;
+          s.onerror = () => rej(new Error("OCRライブラリの読み込みに失敗しました"));
+          document.head.appendChild(s);
+        });
+      }
+      return await Tesseract.createWorker("jpn");
+    })();
+    ocrWorkerPromise.catch(() => { ocrWorkerPromise = null; }); // 失敗時は次回リトライ
+  }
+  return ocrWorkerPromise;
+}
+
+function extractFromOcr(data) {
+  const out = { name: "", price: null };
+  // 行の一覧（可能なら文字高さ付き）を組み立てる
+  let lines = [];
+  for (const b of data.blocks || []) {
+    for (const p of b.paragraphs || []) {
+      for (const l of p.lines || []) {
+        const text = (l.text || "").replace(/\s+/g, " ").trim();
+        if (text) lines.push({ text, h: l.bbox ? l.bbox.y1 - l.bbox.y0 : 0 });
+      }
+    }
+  }
+  if (!lines.length && data.text) {
+    lines = data.text.split(/\n+/).map((t) => ({ text: t.replace(/\s+/g, " ").trim(), h: 0 })).filter((l) => l.text);
+  }
+  // 価格: ¥/円付きの数値のうち、最も文字が大きい行のもの（メイン価格が大きく表示される想定）
+  // 注意: OCRは「¥」をバックスラッシュ(\)やYと誤認識することがあるため許容する
+  let best = null;
+  for (const l of lines) {
+    const m = l.text.match(/[¥￥\\Y]\s*([\d,，]{2,})|([\d,，]{3,})\s*円/);
+    if (!m) continue;
+    const v = parseInt((m[1] || m[2]).replace(/[,，]/g, ""), 10);
+    if (v >= 10 && v < 10000000 && (!best || l.h > best.h)) best = { v, h: l.h };
+  }
+  if (best) out.price = best.v;
+  // 商品名: 価格・ボイラープレート行を除いた中で最も長い行
+  const ng = /[¥￥]|円|ポイント|pt|送料|配送|お届け|カートに|今すぐ|レビュー|評価|在庫|クーポン|タイムセール|^[\d\s,.:%()\-−×・]+$/;
+  const cand = lines.filter((l) => l.text.length >= 8 && !ng.test(l.text));
+  cand.sort((a, b) => b.text.length - a.text.length);
+  if (cand[0]) {
+    // 日本語文字間のOCR由来の余分なスペースを除去
+    out.name = cand[0].text.replace(/(?<=[^\x00-\x7F])\s+(?=[^\x00-\x7F])/g, "").slice(0, 60).trim();
+  }
+  return out;
+}
+
+async function maybeOcrAutofill() {
+  const nameEmpty = !$("#fName").value.trim();
+  const priceEmpty = !$("#fPrice").value;
+  if ((!nameEmpty && !priceEmpty) || !dialogImages.length) return;
+  const status = $("#ocrStatus");
+  status.hidden = false;
+  status.textContent = "🔎 スクショから商品名・価格を読み取り中...（初回は読み取りデータの取得に1分ほどかかることがあります）";
+  try {
+    const worker = await getOcrWorker();
+    const target = dialogImages[dialogImages.length - 1].dataURL;
+    const { data } = await worker.recognize(target, {}, { text: true, blocks: true });
+    if (!$("#itemDialog").open) return;
+    const info = extractFromOcr(data);
+    const got = [];
+    if (nameEmpty && info.name && !$("#fName").value.trim()) { $("#fName").value = info.name; got.push("商品名"); }
+    if (priceEmpty && info.price != null && !$("#fPrice").value) { $("#fPrice").value = info.price; got.push("価格"); }
+    status.textContent = got.length
+      ? `🔎 スクショから ${got.join("・")} を自動入力しました（違っていたら修正してください）`
+      : "⚠️ スクショから商品名・価格を読み取れませんでした（手動で入力してください）";
+  } catch (err) {
+    console.warn("OCRに失敗:", err);
+    if ($("#itemDialog").open) status.textContent = "⚠️ スクショの読み取りに失敗しました（手動で入力してください）";
+  }
 }
 
 $("#itemDialog").addEventListener("paste", (e) => {
